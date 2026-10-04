@@ -3,3 +3,6 @@ ollama
 streamlit
 python-dotenv
 psutil
+pypdf
+openai-whisper
+torch

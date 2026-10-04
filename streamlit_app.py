@@ -1,5 +1,5 @@
 """
-Offline AI Streamlit App - Phase C
+Offline AI Streamlit App - Phase D
 
 For Running:
 > streamlit run ./streamlit_app.py
@@ -41,6 +41,8 @@ def main() -> None:
         )
         return
 
+    functions.render_file_analysis_section()
+    st.divider()
     functions.render_chat_messages()
 
     user_prompt = st.chat_input(placeholder=constants.USER_PROMPT_PLACEHOLDER)

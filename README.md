@@ -6,7 +6,7 @@
 
 ## فاز فعلی
 
-**فاز C** — هیستوری گفتگو با SQLite
+**فاز D** — آپلود و تحلیل فایل (عکس / PDF / متن / صوت)
 
 ## اجرا
 
@@ -30,6 +30,9 @@ dt_utility.py
 dt_llm_utility.py
 dt_ollama_manager.py
 dt_history.py
+dt_files.py
+dt_analysis.py
+dtx_whisper.py
 dtx_dotenv.py
 dtx_ollama.py
 data/chat_history.db   # محلی؛ در git نیست

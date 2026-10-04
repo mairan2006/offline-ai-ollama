@@ -7,6 +7,8 @@ from typing import Optional
 import streamlit as st
 
 import chatbot_constants as constants
+import dt_analysis as analysis
+import dt_files as files
 import dt_history as history
 import dt_llm_utility as llm_utility
 import model_constants as model_constants
@@ -65,6 +67,12 @@ def initial_session_state() -> None:
 
     if "history_notice" not in st.session_state:
         st.session_state.history_notice = ""
+
+    if "file_analysis_result" not in st.session_state:
+        st.session_state.file_analysis_result = ""
+
+    if "file_analysis_source" not in st.session_state:
+        st.session_state.file_analysis_source = ""
 
 
 def ensure_ollama_ready() -> bool:
@@ -353,6 +361,152 @@ def render_sidebar() -> None:
         if st.button(label=constants.CLEAR_CHAT):
             start_new_conversation()
             st.rerun()
+
+
+def add_analysis_result_to_chat(result_text: str, source_name: str) -> None:
+    """Append analysis result into current chat and persist."""
+
+    user_note = f"نتیجه تحلیل فایل «{source_name}» را به گفتگو اضافه کردم."
+    st.session_state.messages.append(
+        {
+            llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_USER,
+            llm_utility.KEY_NAME_CONTENT: user_note,
+        }
+    )
+    st.session_state.messages.append(
+        {
+            llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_ASSISTANT,
+            llm_utility.KEY_NAME_CONTENT: result_text,
+        }
+    )
+    persist_current_conversation()
+
+
+def render_file_analysis_section() -> None:
+    """Render upload + analysis actions for image/pdf/text/audio."""
+
+    with st.expander(label=constants.FILES_HEADER, expanded=False):
+        uploaded = st.file_uploader(
+            label=constants.FILES_UPLOAD_LABEL,
+            type=[
+                "png",
+                "jpg",
+                "jpeg",
+                "webp",
+                "bmp",
+                "pdf",
+                "txt",
+                "md",
+                "markdown",
+                "csv",
+                "mp3",
+                "wav",
+                "m4a",
+                "ogg",
+            ],
+            accept_multiple_files=False,
+        )
+
+        if not uploaded:
+            st.caption(body=constants.FILES_NO_FILE)
+            if st.session_state.file_analysis_result:
+                st.markdown(body=f"**{constants.FILES_RESULT_LABEL}:**")
+                st.write(st.session_state.file_analysis_result)
+            return
+
+        kind = files.detect_file_kind(file_name=uploaded.name)
+        st.caption(body=f"نوع تشخیص‌داده‌شده: {kind} | فایل: {uploaded.name}")
+
+        if kind == "unknown":
+            st.error(body=constants.FILES_UNSUPPORTED)
+            return
+
+        file_bytes = uploaded.getvalue()
+        saved_path = files.save_uploaded_file(
+            file_name=uploaded.name,
+            file_bytes=file_bytes,
+        )
+        model_name = st.session_state.model_name
+
+        if kind == "image":
+            if st.button(label=constants.FILES_ANALYZE_IMAGE):
+                with st.spinner(text="در حال تحلیل تصویر..."):
+                    try:
+                        result = analysis.analyze_image(
+                            image_path=saved_path,
+                            model_name=model_name,
+                        )
+                        st.session_state.file_analysis_result = result
+                        st.session_state.file_analysis_source = uploaded.name
+                    except Exception as exception:
+                        st.error(body=str(exception))
+
+        elif kind in {"pdf", "text"}:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                do_summary = st.button(label=constants.FILES_SUMMARIZE)
+            with col2:
+                do_fa = st.button(label=constants.FILES_TRANSLATE_FA)
+            with col3:
+                do_en = st.button(label=constants.FILES_TRANSLATE_EN)
+
+            try:
+                if do_summary:
+                    with st.spinner(text="در حال خلاصه‌سازی..."):
+                        result = analysis.summarize_document(
+                            file_path=saved_path,
+                            model_name=model_name,
+                        )
+                        st.session_state.file_analysis_result = result
+                        st.session_state.file_analysis_source = uploaded.name
+                elif do_fa:
+                    with st.spinner(text="در حال ترجمه به فارسی..."):
+                        result = analysis.translate_document(
+                            file_path=saved_path,
+                            model_name=model_name,
+                            to_persian=True,
+                        )
+                        st.session_state.file_analysis_result = result
+                        st.session_state.file_analysis_source = uploaded.name
+                elif do_en:
+                    with st.spinner(text="در حال ترجمه به انگلیسی..."):
+                        result = analysis.translate_document(
+                            file_path=saved_path,
+                            model_name=model_name,
+                            to_persian=False,
+                        )
+                        st.session_state.file_analysis_result = result
+                        st.session_state.file_analysis_source = uploaded.name
+            except Exception as exception:
+                st.error(body=str(exception))
+
+        elif kind == "audio":
+            if st.button(label=constants.FILES_TRANSCRIBE):
+                with st.spinner(text="در حال تبدیل صوت به متن با Whisper..."):
+                    try:
+                        text, elapsed = analysis.transcribe_audio(
+                            audio_path=saved_path,
+                        )
+                        result = (
+                            f"متن استخراج‌شده از صوت:\n\n{text}\n\n"
+                            f"(زمان پردازش: {format_seconds(seconds=elapsed)})"
+                        )
+                        st.session_state.file_analysis_result = result
+                        st.session_state.file_analysis_source = uploaded.name
+                    except Exception as exception:
+                        st.error(body=str(exception))
+
+        if st.session_state.file_analysis_result:
+            st.markdown(body=f"**{constants.FILES_RESULT_LABEL}:**")
+            st.write(st.session_state.file_analysis_result)
+            if st.button(label=constants.FILES_ADD_TO_CHAT):
+                add_analysis_result_to_chat(
+                    result_text=st.session_state.file_analysis_result,
+                    source_name=st.session_state.file_analysis_source
+                    or uploaded.name,
+                )
+                st.success(body="نتیجه به گفتگو اضافه و ذخیره شد.")
+                st.rerun()
 
 
 def render_chat_messages() -> None:

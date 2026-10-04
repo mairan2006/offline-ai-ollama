@@ -86,6 +86,57 @@ def chat(
     return assistant_answer, elapsed_time, prompt_tokens, completion_tokens
 
 
+def chat_with_image(
+    prompt: str,
+    image_path: str,
+    think: bool = False,
+    model_name: str = MODEL_NAME,
+    temperature: float = 0.1,
+    base_url: str = BASE_URL_OFFLINE,
+) -> tuple[Optional[str], float, int, int]:
+    """Chat with Ollama using one local image (vision)."""
+
+    client = get_offline_client(base_url=base_url)
+
+    messages: list[dict] = [
+        {
+            llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_USER,
+            llm_utility.KEY_NAME_CONTENT: prompt,
+            "images": [image_path],
+        }
+    ]
+
+    logger.debug(msg=f"Ollama '{model_name}' image chat started...")
+
+    start_time: float = time.perf_counter()
+
+    response: ChatResponse = client.chat(
+        think=think,
+        stream=False,
+        model=model_name,
+        messages=messages,
+        options={llm_utility.KEY_NAME_TEMPRETURE: temperature},
+    )
+
+    end_time: float = time.perf_counter()
+    elapsed_time: float = end_time - start_time
+
+    logger.debug(msg=f"Ollama '{model_name}' image chat finished.")
+
+    assistant_answer: Optional[str] = response.message.content
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    if assistant_answer:
+        if response.eval_count is not None:
+            completion_tokens = response.eval_count
+        if response.prompt_eval_count is not None:
+            prompt_tokens = response.prompt_eval_count
+
+    return assistant_answer, elapsed_time, prompt_tokens, completion_tokens
+
+
 if __name__ == "__main__":
     utility.display_just_one_error_message(
         message=utility.ERROR_MESSAGE_MODULE_IS_NOT_EXECUTED_DIRECTLY,

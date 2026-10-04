@@ -9,3 +9,4 @@ data/chat_history.db-*
 *.mp3
 *.wav
 temp/
+temp/uploads/

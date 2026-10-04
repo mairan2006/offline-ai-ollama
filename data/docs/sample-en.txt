@@ -1,0 +1,17 @@
+Offline AI Project
+==================
+This project runs a fully local assistant with Ollama and Python.
+
+Features:
+- Streaming interactive chat
+- Document Q&A over local .txt/.md files (RAG)
+- CLI and Streamlit web UI
+
+Setup:
+1. Install Ollama and start the local server
+2. Pull a chat model such as gemma3:4b
+3. For RAG, pull nomic-embed-text
+4. Put documents in data/docs and run: python main.py index
+
+Privacy:
+All inference stays on your machine. No cloud API key is required.

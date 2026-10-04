@@ -6,7 +6,7 @@
 
 ## فاز فعلی
 
-**فاز A** — اسکلت Streamlit + چت متنی ساده
+**فاز B** — مدیریت مدل‌ها + دانلود + کنترل رم
 
 ## اجرا
 
@@ -19,14 +19,16 @@ streamlit run .\streamlit_app.py
 
 پیش‌نیاز: Ollama روشن باشد و مدل در `.env` موجود باشد (پیش‌فرض: `gemma3:4b`).
 
-## ساختار فاز A
+## ساختار اصلی
 
 ```
 streamlit_app.py
 chatbot_constants.py
 chatbot_functions.py
+model_constants.py
 dt_utility.py
 dt_llm_utility.py
+dt_ollama_manager.py
 dtx_dotenv.py
 dtx_ollama.py
 PLAN.md

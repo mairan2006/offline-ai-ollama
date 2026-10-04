@@ -1,5 +1,5 @@
 """
-Offline AI Streamlit App - Phase A
+Offline AI Streamlit App - Phase B
 
 For Running:
 > streamlit run ./streamlit_app.py
@@ -18,6 +18,13 @@ def main() -> None:
     functions.initial_session_state()
 
     ollama_ok = functions.ensure_ollama_ready()
+    if ollama_ok and not st.session_state.model_options_cache:
+        functions.refresh_model_options()
+
+    # Prepare default/selected model once after Ollama is ready.
+    if ollama_ok and not st.session_state.model_ready:
+        functions.prepare_selected_model(model_name=st.session_state.model_name)
+
     functions.render_sidebar()
 
     st.header(body=f"👋 {constants.PAGE_HEADER}", divider="rainbow")
@@ -25,6 +32,13 @@ def main() -> None:
     if not ollama_ok:
         st.error(body=st.session_state.ollama_status_message)
         st.info(body=constants.ERROR_OLLAMA_CONNECTION)
+        return
+
+    if not st.session_state.model_ready:
+        st.error(
+            body=st.session_state.model_status_message
+            or "مدل برای استفاده آماده نیست."
+        )
         return
 
     functions.render_chat_messages()

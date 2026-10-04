@@ -2,9 +2,12 @@
 Chatbot Functions
 """
 
+from typing import Optional
+
 import streamlit as st
 
 import chatbot_constants as constants
+import dt_history as history
 import dt_llm_utility as llm_utility
 import model_constants as model_constants
 from dt_ollama_manager import (
@@ -34,6 +37,8 @@ def set_page_config() -> None:
 def initial_session_state() -> None:
     """Initialize Streamlit session state."""
 
+    history.init_db()
+
     if "model_name" not in st.session_state:
         st.session_state.model_name = constants.DEFAULT_MODEL_NAME
 
@@ -54,6 +59,12 @@ def initial_session_state() -> None:
 
     if "model_options_cache" not in st.session_state:
         st.session_state.model_options_cache = []
+
+    if "conversation_id" not in st.session_state:
+        st.session_state.conversation_id = None
+
+    if "history_notice" not in st.session_state:
+        st.session_state.history_notice = ""
 
 
 def ensure_ollama_ready() -> bool:
@@ -78,10 +89,67 @@ def refresh_model_options() -> list[tuple[str, str, bool]]:
     return options
 
 
-def clear_chat_history() -> None:
-    """Clear chat history and keep system message."""
+def start_new_conversation() -> None:
+    """Start a fresh in-memory conversation (saved on first reply)."""
 
     st.session_state.messages = [constants.SYSTEM_MESSAGE.copy()]
+    st.session_state.conversation_id = None
+    st.session_state.history_notice = constants.HISTORY_NEW
+
+
+def clear_chat_history() -> None:
+    """Alias used by older UI button name."""
+
+    start_new_conversation()
+
+
+def ensure_conversation_exists() -> int:
+    """Create DB conversation if current chat has no id yet."""
+
+    if st.session_state.conversation_id is not None:
+        return int(st.session_state.conversation_id)
+
+    conversation_id = history.create_conversation(
+        model_name=st.session_state.model_name,
+        title="گفتگوی جدید",
+    )
+    st.session_state.conversation_id = conversation_id
+    return conversation_id
+
+
+def persist_current_conversation() -> None:
+    """Save current messages into SQLite."""
+
+    conversation_id = ensure_conversation_exists()
+    history.save_messages(
+        conversation_id=conversation_id,
+        messages=st.session_state.messages,
+        model_name=st.session_state.model_name,
+    )
+
+
+def load_conversation(conversation_id: int) -> None:
+    """Load a conversation from SQLite into session."""
+
+    conversation = history.get_conversation(conversation_id=conversation_id)
+    if not conversation:
+        st.session_state.history_notice = "گفتگوی مورد نظر پیدا نشد."
+        return
+
+    messages = history.get_messages(conversation_id=conversation_id)
+    if not messages:
+        messages = [constants.SYSTEM_MESSAGE.copy()]
+    elif messages[0].get("role") != llm_utility.ROLE_SYSTEM:
+        messages = [constants.SYSTEM_MESSAGE.copy()] + messages
+
+    st.session_state.conversation_id = conversation_id
+    st.session_state.messages = messages
+    st.session_state.model_name = conversation.get(
+        "model_name",
+        st.session_state.model_name,
+    )
+    st.session_state.model_ready = False
+    st.session_state.history_notice = constants.HISTORY_LOADED
 
 
 def prepare_selected_model(model_name: str) -> bool:
@@ -104,8 +172,77 @@ def prepare_selected_model(model_name: str) -> bool:
     return ok
 
 
+def render_history_section() -> None:
+    """Render conversation history controls in sidebar."""
+
+    st.markdown(body=f"**{constants.HISTORY_HEADER}**")
+
+    conversations = history.list_conversations(limit=50)
+    if not conversations:
+        st.caption(body=constants.HISTORY_EMPTY)
+    else:
+        labels = [constants.HISTORY_NONE_OPTION]
+        ids: list[Optional[int]] = [None]
+        for item in conversations:
+            label = (
+                f"#{item['id']} | {item['title']} | {item['model_name']} | "
+                f"{item['updated_at']}"
+            )
+            labels.append(label)
+            ids.append(int(item["id"]))
+
+        # Keep dropdown synced with currently loaded conversation.
+        current_index = 0
+        if st.session_state.conversation_id is not None:
+            for index, conversation_id in enumerate(ids):
+                if conversation_id == st.session_state.conversation_id:
+                    current_index = index
+                    break
+
+        selected_label = st.selectbox(
+            label=constants.HISTORY_SELECT_LABEL,
+            options=labels,
+            index=current_index,
+        )
+        selected_id = ids[labels.index(selected_label)]
+
+        # Load immediately on dropdown change (no separate load button).
+        if (
+            selected_id is not None
+            and selected_id != st.session_state.conversation_id
+        ):
+            load_conversation(conversation_id=selected_id)
+            st.rerun()
+
+        if st.button(label=constants.HISTORY_DELETE, use_container_width=True):
+            if selected_id is None and st.session_state.conversation_id is None:
+                st.session_state.history_notice = "لطفا یک گفتگو انتخاب کنید."
+            else:
+                target_id = selected_id or st.session_state.conversation_id
+                history.delete_conversation(conversation_id=int(target_id))
+                if st.session_state.conversation_id == target_id:
+                    start_new_conversation()
+                st.session_state.history_notice = constants.HISTORY_DELETED
+                st.rerun()
+
+    if st.button(label=constants.HISTORY_DELETE_ALL, use_container_width=True):
+        history.delete_all_conversations()
+        start_new_conversation()
+        st.session_state.history_notice = "همه تاریخچه حذف شد."
+        st.rerun()
+
+    if st.session_state.history_notice:
+        st.caption(body=st.session_state.history_notice)
+
+    current_id = st.session_state.conversation_id
+    if current_id is None:
+        st.caption(body="گفتگوی فعلی: هنوز ذخیره نشده (بعد از اولین پاسخ ذخیره می‌شود)")
+    else:
+        st.caption(body=f"گفتگوی فعلی: #{current_id}")
+
+
 def render_sidebar() -> None:
-    """Render sidebar settings including model dropdown."""
+    """Render sidebar settings including model dropdown and history."""
 
     with st.sidebar:
         st.header(body=constants.SETTINGS)
@@ -181,15 +318,15 @@ def render_sidebar() -> None:
                 ok = prepare_selected_model(model_name=selected_name)
                 if ok:
                     st.success(body=st.session_state.model_status_message)
-                    # Keep conversation continuity; user can clear manually.
                     st.info(
                         body=(
                             f"مدل از «{previous_model}» به «{selected_name}» تغییر کرد."
                         )
                     )
+                    if st.session_state.conversation_id is not None:
+                        persist_current_conversation()
                 else:
                     st.error(body=st.session_state.model_status_message)
-                    # Revert selection if preparation failed.
                     st.session_state.model_name = previous_model
                     st.session_state.model_ready = False
                     st.rerun()
@@ -208,10 +345,13 @@ def render_sidebar() -> None:
                 st.session_state.model_ready = False
                 st.rerun()
 
+        st.divider()
+        render_history_section()
+
         st.markdown(body=constants.ABOUT, unsafe_allow_html=True)
 
         if st.button(label=constants.CLEAR_CHAT):
-            clear_chat_history()
+            start_new_conversation()
             st.rerun()
 
 
@@ -232,7 +372,7 @@ def render_chat_messages() -> None:
 
 def get_assistant_answer(user_prompt: str) -> tuple[str, str]:
     """
-    Get assistant answer from Ollama.
+    Get assistant answer from Ollama and persist history.
 
     Returns:
         answer text, elapsed time text
@@ -272,6 +412,8 @@ def get_assistant_answer(user_prompt: str) -> tuple[str, str]:
         llm_utility.KEY_NAME_CONTENT: assistant_answer,
     }
     st.session_state.messages.append(assistant_message)
+
+    persist_current_conversation()
 
     elapsed_text: str = (
         f"{constants.ELAPSED_TIME_LABEL}: {format_seconds(seconds=elapsed_time)} | "

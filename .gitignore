@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .env
 data/index.npz
+data/chat_history.db
+data/chat_history.db-*
 .streamlit/secrets.toml
 *.mp3
 *.wav

@@ -6,7 +6,7 @@
 
 ## فاز فعلی
 
-**فاز B** — مدیریت مدل‌ها + دانلود + کنترل رم
+**فاز C** — هیستوری گفتگو با SQLite
 
 ## اجرا
 
@@ -29,8 +29,10 @@ model_constants.py
 dt_utility.py
 dt_llm_utility.py
 dt_ollama_manager.py
+dt_history.py
 dtx_dotenv.py
 dtx_ollama.py
+data/chat_history.db   # محلی؛ در git نیست
 PLAN.md
 ```
 

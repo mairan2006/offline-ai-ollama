@@ -13,6 +13,7 @@ import dt_files as files
 import dt_history as history
 import dt_llm_utility as llm_utility
 import dt_recorder as recorder
+import dt_tts as tts_router
 import dt_tts_edge as tts_edge
 import dtx_whisper as whisper_module
 import model_constants as model_constants
@@ -84,6 +85,15 @@ def initial_session_state() -> None:
     if "voice_edge_voice" not in st.session_state:
         st.session_state.voice_edge_voice = tts_edge.VOICES_FEMALE[0]
 
+    if "voice_tts_engine" not in st.session_state:
+        st.session_state.voice_tts_engine = tts_router.ENGINE_EDGE
+
+    if "voice_offline_voice" not in st.session_state:
+        st.session_state.voice_offline_voice = ""
+
+    if "voice_reply_mime" not in st.session_state:
+        st.session_state.voice_reply_mime = "audio/mpeg"
+
     if "voice_max_seconds" not in st.session_state:
         st.session_state.voice_max_seconds = 15
 
@@ -101,6 +111,9 @@ def initial_session_state() -> None:
 
     if "voice_notice" not in st.session_state:
         st.session_state.voice_notice = ""
+
+    if "voice_used_whisper" not in st.session_state:
+        st.session_state.voice_used_whisper = ""
 
 
 def ensure_ollama_ready() -> bool:
@@ -512,12 +525,13 @@ def render_file_analysis_section() -> None:
             if st.button(label=constants.FILES_TRANSCRIBE):
                 with st.spinner(text="در حال تبدیل صوت به متن با Whisper..."):
                     try:
-                        text, elapsed, unloaded = analysis.transcribe_audio(
+                        text, elapsed, unloaded, used_model = analysis.transcribe_audio(
                             audio_path=saved_path,
                             model_name=st.session_state.voice_whisper_model,
                         )
                         if unloaded:
                             st.session_state.model_ready = False
+                        st.session_state.voice_used_whisper = used_model
                         result = (
                             f"متن استخراج‌شده از صوت:\n\n{text}\n\n"
                             f"(زمان پردازش: {format_seconds(seconds=elapsed)})"
@@ -576,13 +590,14 @@ def render_voice_player() -> None:
 
     autoplay = bool(st.session_state.voice_autoplay)
     st.session_state.voice_autoplay = False
+    mime = st.session_state.voice_reply_mime or "audio/mpeg"
     encoded = base64.b64encode(audio_bytes).decode(encoding="ascii")
     autoplay_attr = "autoplay" if autoplay else ""
     st.markdown(
         body=(
             '<div dir="rtl">'
             f'<audio controls {autoplay_attr} style="width: 100%">'
-            f'<source src="data:audio/mpeg;base64,{encoded}" type="audio/mpeg">'
+            f'<source src="data:{mime};base64,{encoded}" type="{mime}">'
             "</audio></div>"
         ),
         unsafe_allow_html=True,
@@ -590,17 +605,18 @@ def render_voice_player() -> None:
 
 
 def process_voice_audio(audio_path: Path) -> None:
-    """STT, chat answer, then Edge TTS playback."""
+    """STT, chat answer, then TTS playback (Edge or offline)."""
 
     st.session_state.voice_notice = ""
 
     with st.spinner(text=constants.VOICE_STT_SPINNER):
-        text, _elapsed, unloaded = analysis.transcribe_audio(
+        text, _elapsed, unloaded, used_model = analysis.transcribe_audio(
             audio_path=audio_path,
             model_name=st.session_state.voice_whisper_model,
         )
     if unloaded:
         st.session_state.model_ready = False
+    st.session_state.voice_used_whisper = used_model
 
     text = (text or "").strip()
     st.session_state.voice_last_transcript = text
@@ -619,32 +635,76 @@ def process_voice_audio(audio_path: Path) -> None:
         with st.spinner(text="در حال فکر کردن..."):
             answer, _elapsed_text = get_assistant_answer(user_prompt=text)
     except Exception as exception:
-        st.session_state.voice_notice = str(exception)
+        st.session_state.voice_notice = (
+            "پاسخ مدل ساخته نشد. "
+            f"{exception}"
+        )
         return
 
     if answer == constants.ERROR_NO_ANSWER:
         st.session_state.voice_notice = constants.ERROR_NO_ANSWER
         return
 
+    engine = tts_router.normalize_engine(engine=st.session_state.voice_tts_engine)
+    if engine == tts_router.ENGINE_OFFLINE:
+        voice = st.session_state.voice_offline_voice or ""
+        spinner = constants.VOICE_TTS_SPINNER_OFFLINE
+    else:
+        voice = st.session_state.voice_edge_voice
+        spinner = constants.VOICE_TTS_SPINNER_EDGE
+
     try:
-        with st.spinner(text=constants.VOICE_TTS_SPINNER):
-            audio_file, _words, _tts_elapsed, truncated = tts_edge.synthesize_persian(
+        with st.spinner(text=spinner):
+            audio_file, _words, _tts_elapsed, truncated, mime = tts_router.synthesize_persian(
                 text=answer,
-                voice=st.session_state.voice_edge_voice,
+                engine=engine,
+                voice=voice,
             )
     except Exception as exception:
+        # Practical fallback: if offline cannot speak Persian, try Edge once.
+        if engine == tts_router.ENGINE_OFFLINE:
+            try:
+                with st.spinner(text=constants.VOICE_TTS_SPINNER_EDGE):
+                    audio_file, _words, _tts_elapsed, truncated, mime = (
+                        tts_router.synthesize_persian(
+                            text=answer,
+                            engine=tts_router.ENGINE_EDGE,
+                            voice=st.session_state.voice_edge_voice,
+                        )
+                    )
+                st.session_state.voice_reply_bytes = Path(audio_file).read_bytes()
+                st.session_state.voice_reply_mime = mime
+                st.session_state.voice_autoplay = True
+                notice = (
+                    "TTS آفلاین برای فارسی روی این سیستم آماده نبود؛ "
+                    "پاسخ با Edge خوانده شد. "
+                    f"({exception})"
+                )
+                if truncated:
+                    notice = f"{constants.VOICE_TRUNCATED} | {notice}"
+                st.session_state.voice_notice = notice
+                return
+            except Exception as edge_exception:
+                st.session_state.voice_notice = (
+                    "پاسخ متنی آماده شد، ولی ساخت صدا ناموفق بود: "
+                    f"آفلاین: {exception} | Edge: {edge_exception}"
+                )
+                return
+
         st.session_state.voice_notice = (
-            f"پاسخ متنی آماده شد، ولی ساخت صدا ناموفق بود: {exception}"
+            "پاسخ متنی آماده شد، ولی ساخت صدا ناموفق بود: "
+            f"{exception}"
         )
         return
 
     st.session_state.voice_reply_bytes = Path(audio_file).read_bytes()
+    st.session_state.voice_reply_mime = mime
     st.session_state.voice_autoplay = True
     st.session_state.voice_notice = constants.VOICE_TRUNCATED if truncated else ""
 
 
 def render_voice_conversation_section() -> None:
-    """Persian voice conversation: record, STT, model answer, Edge playback."""
+    """Persian voice conversation: record, STT, model answer, TTS playback."""
 
     with st.expander(label=constants.VOICE_HEADER, expanded=True):
         st.caption(body=constants.VOICE_HELP)
@@ -652,27 +712,27 @@ def render_voice_conversation_section() -> None:
 
         whisper_options = ["auto", "tiny", "base", "small", "medium", "turbo"]
         whisper_labels = {
-            "auto": "خودکار — بهترین مدل با رم فعلی",
+            "auto": "خودکار — قوی‌ترین مدل ممکن با رم فعلی",
             "tiny": "tiny — خیلی سبک، فارسی ضعیف‌تر",
             "base": "base — سبک",
-            "small": "small — پیشنهادی برای رم کم",
-            "medium": "medium — دقیق‌تر (رم بیشتر)",
+            "small": "small — متوسط",
+            "medium": "medium — پیشنهادی برای فارسی",
             "turbo": "turbo — دقیق‌ترین (رم زیاد)",
         }
         current_whisper = st.session_state.voice_whisper_model
         if current_whisper not in whisper_options:
             current_whisper = "auto"
 
-        voice_options = [
-            tts_edge.VOICES_FEMALE[0],
-            tts_edge.VOICES_MALE[0],
-        ]
-        voice_labels = {
-            tts_edge.VOICES_FEMALE[0]: constants.VOICE_EDGE_FEMALE,
-            tts_edge.VOICES_MALE[0]: constants.VOICE_EDGE_MALE,
+        engine_options = tts_router.ENGINE_OPTIONS
+        engine_labels = {
+            tts_router.ENGINE_EDGE: constants.VOICE_TTS_EDGE,
+            tts_router.ENGINE_OFFLINE: constants.VOICE_TTS_OFFLINE,
         }
+        current_engine = tts_router.normalize_engine(
+            engine=st.session_state.voice_tts_engine,
+        )
 
-        col_model, col_voice = st.columns(2)
+        col_model, col_engine = st.columns(2)
         with col_model:
             st.session_state.voice_whisper_model = st.selectbox(
                 label=constants.VOICE_WHISPER_LABEL,
@@ -680,7 +740,23 @@ def render_voice_conversation_section() -> None:
                 index=whisper_options.index(current_whisper),
                 format_func=lambda name: whisper_labels.get(name, name),
             )
-        with col_voice:
+        with col_engine:
+            st.session_state.voice_tts_engine = st.selectbox(
+                label=constants.VOICE_TTS_ENGINE_LABEL,
+                options=engine_options,
+                index=engine_options.index(current_engine),
+                format_func=lambda name: engine_labels.get(name, name),
+            )
+
+        if st.session_state.voice_tts_engine == tts_router.ENGINE_EDGE:
+            voice_options = [
+                tts_edge.VOICES_FEMALE[0],
+                tts_edge.VOICES_MALE[0],
+            ]
+            voice_labels = {
+                tts_edge.VOICES_FEMALE[0]: constants.VOICE_EDGE_FEMALE,
+                tts_edge.VOICES_MALE[0]: constants.VOICE_EDGE_MALE,
+            }
             current_voice = st.session_state.voice_edge_voice
             if current_voice not in voice_options:
                 current_voice = tts_edge.VOICES_FEMALE[0]
@@ -690,6 +766,32 @@ def render_voice_conversation_section() -> None:
                 index=voice_options.index(current_voice),
                 format_func=lambda name: voice_labels.get(name, name),
             )
+        else:
+            offline_voices: list[dict] = []
+            try:
+                offline_voices = tts_router.list_offline_voices()
+            except Exception as exception:
+                st.warning(body=f"{constants.VOICE_OFFLINE_NO_VOICE} ({exception})")
+
+            if offline_voices:
+                offline_ids = [""] + [item["id"] for item in offline_voices]
+                offline_labels = {"": constants.VOICE_OFFLINE_AUTO}
+                for item in offline_voices:
+                    offline_labels[item["id"]] = item["name"]
+                current_offline = st.session_state.voice_offline_voice
+                if current_offline not in offline_ids:
+                    current_offline = ""
+                st.session_state.voice_offline_voice = st.selectbox(
+                    label=constants.VOICE_OFFLINE_VOICE_LABEL,
+                    options=offline_ids,
+                    index=offline_ids.index(current_offline),
+                    format_func=lambda voice_id: offline_labels.get(voice_id, voice_id),
+                )
+                if not tts_router.has_persian_offline_voice():
+                    st.warning(body=constants.VOICE_OFFLINE_HINT)
+            else:
+                st.caption(body=constants.VOICE_OFFLINE_NO_VOICE)
+                st.caption(body=constants.VOICE_OFFLINE_HINT)
 
         st.slider(
             label=constants.VOICE_SECONDS_LABEL,
@@ -716,7 +818,12 @@ def render_voice_conversation_section() -> None:
                     )
                 process_voice_audio(audio_path=recorded_path)
             except Exception as exception:
-                st.error(body=str(exception))
+                st.error(
+                    body=(
+                        "ضبط صدا ناموفق بود. میکروفون را بررسی کنید یا از ضبط مرورگر استفاده کنید. "
+                        f"({exception})"
+                    )
+                )
 
         browser_audio = st.audio_input(label=constants.VOICE_BROWSER_LABEL)
         if browser_audio is not None:
@@ -743,7 +850,12 @@ def render_voice_conversation_section() -> None:
                         process_voice_audio(audio_path=saved_path)
                         st.session_state.voice_sent_token = audio_token
                     except Exception as exception:
-                        st.error(body=str(exception))
+                        st.error(
+                            body=(
+                                "ارسال صدای مرورگر ناموفق بود. "
+                                f"({exception})"
+                            )
+                        )
 
         if st.session_state.voice_notice:
             st.warning(body=st.session_state.voice_notice)
@@ -751,6 +863,13 @@ def render_voice_conversation_section() -> None:
         if st.session_state.voice_last_transcript:
             st.markdown(body=f"**{constants.VOICE_TRANSCRIPT_LABEL}:**")
             st.write(st.session_state.voice_last_transcript)
+            if st.session_state.voice_used_whisper:
+                st.caption(
+                    body=(
+                        f"{constants.VOICE_USED_MODEL_LABEL}: "
+                        f"{st.session_state.voice_used_whisper}"
+                    )
+                )
 
         render_voice_player()
 

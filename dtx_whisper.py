@@ -24,7 +24,7 @@ VERSION: Final[str] = "1.4.0"
 TEMP_AUDIO_FILE_PATH: Final[str] = "./temp/temp_audio.mp3"
 
 STT_TEMPRETURE: Final[float] = 0.0
-STT_BEAM_SIZE: Final[int] = 5
+STT_BEAM_SIZE: Final[int] = 8
 STT_VALID_AUDIO_FILE_EXTENSIONS: Final[list[str]] = [
     "mp3",
     "wav",
@@ -33,12 +33,23 @@ STT_VALID_AUDIO_FILE_EXTENSIONS: Final[list[str]] = [
     "webm",
 ]
 
-# Persian offline STT. small is the practical default on low-RAM PCs.
+# Persian offline STT. Prefer medium when RAM allows (auto mode).
 STT_LANGUAGE: Final[str] = "fa"
-STT_MODEL_NAME: Final[str] = "small"
+STT_MODEL_NAME: Final[str] = "medium"
 STT_INITIAL_PROMPT: Final[str] = (
-    "این یک گفتگوی فارسی روزمره و واضح است. "
-    "کلمات رایج: سلام، حالت چطور است، لطفا، ممنون، بله، نه."
+    "این یک گفتگوی فارسی روزمره و فنی است. "
+    "کلمات رایج: پروژه، هوش مصنوعی، ایران، معرفی، برنامه، مدل، "
+    "سلام، لطفا، ممنون، بله، نه، خوب، چطور."
+)
+
+# Common Whisper Persian mishearings → corrected forms.
+STT_SIMPLE_FIXES: Final[tuple[tuple[str, str], ...]] = (
+    ("پروجه", "پروژه"),
+    ("پرژه", "پروژه"),
+    ("هوشه مصنوعی", "هوش مصنوعی"),
+    ("هوشهصنعی", "هوش مصنوعی"),
+    ("مستنوی", "هوش مصنوعی"),
+    ("بوش مصنوعی", "هوش مصنوعی"),
 )
 
 # Approximate RAM while model is loaded (faster-whisper int8 estimates).
@@ -155,24 +166,37 @@ def choose_model_for_ram(available_bytes: int, preferred: str = STT_MODEL_NAME) 
     """
     Pick the best Whisper size that fits in available RAM.
 
-    Preference order favors accuracy when RAM allows.
+    For "auto", always choose the strongest model that fits.
     """
 
-    preferred = (preferred or STT_MODEL_NAME).replace(" ", "").lower()
-    if preferred == "auto":
-        preferred = STT_MODEL_NAME
-
+    preferred = (preferred or "auto").replace(" ", "").lower()
     # Keep a modest cushion for OS + Streamlit while STT runs.
-    budget = max(0, int(available_bytes) - 900_000_000)
+    budget = max(0, int(available_bytes) - 700_000_000)
     ranking = ["turbo", "medium", "small", "base", "tiny"]
 
-    if preferred in WHISPER_RAM_BYTES and estimate_ram_bytes(preferred) <= budget:
-        return preferred
+    # Explicit choice: use it if it fits, otherwise fall down the ranking.
+    if preferred not in {"", "auto"}:
+        if preferred in WHISPER_RAM_BYTES and estimate_ram_bytes(preferred) <= budget:
+            return preferred
+        start = ranking.index(preferred) + 1 if preferred in ranking else 0
+        for name in ranking[start:]:
+            if estimate_ram_bytes(name) <= budget:
+                return name
+        return "tiny"
 
     for name in ranking:
         if estimate_ram_bytes(name) <= budget:
             return name
     return "tiny"
+
+
+def apply_simple_persian_fixes(text: str) -> str:
+    """Apply a tiny dictionary of common Persian STT mistakes."""
+
+    fixed = utility.fix_text(text=text)
+    for wrong, right in STT_SIMPLE_FIXES:
+        fixed = fixed.replace(wrong, right)
+    return fixed
 
 
 def _faster_whisper_available() -> bool:
@@ -423,8 +447,11 @@ def _transcribe_faster(
         condition_on_previous_text=False,
         vad_filter=True,
         vad_parameters={
-            "min_silence_duration_ms": 400,
+            "min_silence_duration_ms": 500,
+            "speech_pad_ms": 400,
         },
+        no_speech_threshold=0.6,
+        compression_ratio_threshold=2.4,
     )
     parts = [str(segment.text).strip() for segment in segments if str(segment.text).strip()]
     return " ".join(parts).strip()
@@ -507,6 +534,8 @@ def transcribe(
 
     end_time: float = time.perf_counter()
     elapsed_time: float = end_time - start_time
+
+    text = apply_simple_persian_fixes(text=text)
 
     logger.debug(msg=f"Whisper Model: '{model_name}' - Transcribe finished.")
 

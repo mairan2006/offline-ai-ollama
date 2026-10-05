@@ -156,15 +156,16 @@ def translate_document(
 def transcribe_audio(
     audio_path: Path,
     model_name: str = "",
-) -> tuple[str, float, bool]:
+) -> tuple[str, float, bool, str]:
     """
     Transcribe audio with Whisper (Persian).
 
     Unloads Ollama models first if free RAM is low.
-    Returns text, elapsed seconds, and whether Ollama models were unloaded.
+    Returns text, elapsed seconds, whether Ollama models were unloaded,
+    and the Whisper model name that was actually used.
     """
 
-    requested = (model_name or whisper_module.STT_MODEL_NAME).replace(" ", "").lower()
+    requested = (model_name or "auto").replace(" ", "").lower()
 
     # Free chat models first so a stronger Whisper can fit on low-RAM PCs.
     unloaded_names = unload_all_loaded_models()
@@ -185,7 +186,7 @@ def transcribe_audio(
     needed = whisper_module.estimate_ram_bytes(model_name=selected)
     if not whisper_module.is_model_loaded(model_name=selected):
         # faster-whisper needs less cushion than old openai-whisper path.
-        needed += max(500_000_000, RAM_SAFETY_MARGIN_BYTES // 4)
+        needed += max(400_000_000, RAM_SAFETY_MARGIN_BYTES // 5)
 
     if not whisper_module.is_model_loaded(model_name=selected) and available_after < needed:
         # Fall back one more step if still tight.
@@ -193,7 +194,7 @@ def transcribe_audio(
             available_bytes=available_after,
             preferred="auto",
         )
-        needed = whisper_module.estimate_ram_bytes(model_name=selected) + 500_000_000
+        needed = whisper_module.estimate_ram_bytes(model_name=selected) + 400_000_000
 
     if not whisper_module.is_model_loaded(model_name=selected) and available_after < needed:
         raise RuntimeError(
@@ -208,7 +209,7 @@ def transcribe_audio(
         model_name=selected,
         audio_file_path=str(audio_path),
     )
-    return text, elapsed, bool(unloaded_names)
+    return text, elapsed, bool(unloaded_names), selected
 
 
 if __name__ == "__main__":

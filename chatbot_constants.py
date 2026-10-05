@@ -86,12 +86,25 @@ FILES_UNSUPPORTED: Final[str] = "این نوع فایل پشتیبانی نمی�
 FILES_NO_FILE: Final[str] = "ابتدا یک فایل آپلود کنید."
 VOICE_HEADER: Final[str] = "مکالمه صوتی"
 VOICE_HELP: Final[str] = (
-    "صحبت کنید. گفتار با Whisper کم‌رم (faster-whisper) به متن تبدیل می‌شود، "
-    "مدل جواب می‌دهد، و Edge همان پاسخ را با صدای فارسی می‌خواند. "
-    "چت آفلاین است؛ ساخت صدا با Edge به اینترنت نیاز دارد."
+    "صحبت کنید. گفتار با Whisper کم‌رم به متن تبدیل می‌شود، مدل جواب می‌دهد، "
+    "و پاسخ با Edge یا TTS آفلاین خوانده می‌شود. "
+    "چت و Whisper آفلاین‌اند؛ Edge به اینترنت نیاز دارد."
 )
 VOICE_WHISPER_LABEL: Final[str] = "مدل Whisper"
 VOICE_EDGE_LABEL: Final[str] = "صدای پاسخ"
+VOICE_TTS_ENGINE_LABEL: Final[str] = "موتور گفتار (TTS)"
+VOICE_TTS_EDGE: Final[str] = "Edge — کیفیت بهتر (نیاز به اینترنت)"
+VOICE_TTS_OFFLINE: Final[str] = "آفلاین — صدای ویندوز (بدون اینترنت)"
+VOICE_OFFLINE_HINT: Final[str] = (
+    "اگر صدای فارسی در ویندوز نصب نباشد، متن فارسی با صدای انگلیسی خوانده می‌شود. "
+    "برای کیفیت بهتر فارسی، Edge را انتخاب کنید یا Voice فارسی ویندوز را نصب کنید."
+)
+VOICE_OFFLINE_VOICE_LABEL: Final[str] = "صدای سیستم"
+VOICE_OFFLINE_AUTO: Final[str] = "خودکار (ترجیح فارسی اگر موجود باشد)"
+VOICE_OFFLINE_NO_VOICE: Final[str] = (
+    "صدای سیستمی پیدا نشد. در تنظیمات ویندوز Speech یک صدا نصب کنید، "
+    "یا موقتاً Edge را انتخاب کنید."
+)
 VOICE_SECONDS_LABEL: Final[str] = "حداکثر مدت ضبط (ثانیه)"
 VOICE_RECORD_BUTTON: Final[str] = "ضبط با میکروفون سیستم (تا سکوت)"
 VOICE_RECORD_HELP: Final[str] = (
@@ -106,13 +119,16 @@ VOICE_EMPTY_TRANSCRIPT: Final[str] = (
     "یا مدل Whisper را روی small/medium بگذارید."
 )
 VOICE_RAM_HINT: Final[str] = (
-    "برای دقت بهتر با رم کم: گزینه «خودکار» یا «small/medium» را بگذارید. "
-    "قبل از شنیدن، مدل چت موقتاً از رم خارج می‌شود و بعد دوباره لود می‌شود. "
-    "نزدیک میکروفون، واضح و بدون نویز صحبت کنید."
+    "برای دقت بهتر: Whisper را روی «خودکار» یا «medium» بگذارید، "
+    "نزدیک میکروفون واضح حرف بزنید و تا تمام شدن جمله کمی مکث کنید. "
+    "قبل از شنیدن، مدل چت موقتاً از رم خارج می‌شود."
 )
+VOICE_USED_MODEL_LABEL: Final[str] = "مدل Whisper استفاده‌شده"
 VOICE_RECORD_SPINNER: Final[str] = "در حال ضبط... بعد از سکوت، ضبط خودش تمام می‌شود."
 VOICE_STT_SPINNER: Final[str] = "در حال تبدیل گفتار به متن با Whisper..."
-VOICE_TTS_SPINNER: Final[str] = "در حال ساخت صدای پاسخ با Edge..."
+VOICE_TTS_SPINNER: Final[str] = "در حال ساخت صدای پاسخ..."
+VOICE_TTS_SPINNER_EDGE: Final[str] = "در حال ساخت صدای پاسخ با Edge..."
+VOICE_TTS_SPINNER_OFFLINE: Final[str] = "در حال ساخت صدای پاسخ آفلاین (ویندوز)..."
 VOICE_TRUNCATED: Final[str] = "پاسخ طولانی بود؛ برای پخش، بخش اول آن خوانده شد."
 VOICE_NO_MIC: Final[str] = "میکروفون پیش‌فرض سیستم پیدا نشد. از ضبط مرورگر استفاده کنید."
 VOICE_EDGE_FEMALE: Final[str] = "زن — Dilara"

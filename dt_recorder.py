@@ -16,12 +16,12 @@ import dt_utility as utility
 VERSION: Final[str] = "1.0.0"
 
 CHANNELS: Final[int] = 1
-THRESHOLD: Final[float] = 0.010
+THRESHOLD: Final[float] = 0.009
 SAMPLE_RATE: Final[int] = 16_000
-SILENCE_DURATION: Final[float] = 1.8
+SILENCE_DURATION: Final[float] = 2.4
 CHUNK_DURATION: Final[float] = 0.1
 CHUNK_SIZE: Final[int] = int(SAMPLE_RATE * CHUNK_DURATION)
-MAX_RECORD_SECONDS: Final[float] = 20.0
+MAX_RECORD_SECONDS: Final[float] = 25.0
 
 ROOT_DIR: Final[Path] = Path(__file__).resolve().parent
 RECORD_DIR: Final[Path] = ROOT_DIR / "temp" / "recordings"

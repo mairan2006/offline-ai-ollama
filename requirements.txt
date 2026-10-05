@@ -5,4 +5,10 @@ python-dotenv
 psutil
 pypdf
 openai-whisper
+faster-whisper
+huggingface-hub>=0.21,<1.0
 torch
+numpy
+sounddevice
+imageio-ffmpeg
+edge-tts

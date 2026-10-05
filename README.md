@@ -6,7 +6,8 @@
 
 ## فاز فعلی
 
-**فاز D** — آپلود و تحلیل فایل (عکس / PDF / متن / صوت)
+**فاز E** — مکالمهٔ صوتی (ضبط، Whisper، پاسخ مدل، Edge TTS)  
+فاز D (تحلیل فایل) هم در همین برنامه هست.
 
 ## اجرا
 
@@ -32,6 +33,8 @@ dt_ollama_manager.py
 dt_history.py
 dt_files.py
 dt_analysis.py
+dt_recorder.py
+dt_tts_edge.py
 dtx_whisper.py
 dtx_dotenv.py
 dtx_ollama.py

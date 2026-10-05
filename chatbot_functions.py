@@ -2,6 +2,7 @@
 Chatbot Functions
 """
 
+from pathlib import Path
 from typing import Optional
 
 import streamlit as st
@@ -11,6 +12,9 @@ import dt_analysis as analysis
 import dt_files as files
 import dt_history as history
 import dt_llm_utility as llm_utility
+import dt_recorder as recorder
+import dt_tts_edge as tts_edge
+import dtx_whisper as whisper_module
 import model_constants as model_constants
 from dt_ollama_manager import (
     can_fit_model_in_ram,
@@ -73,6 +77,30 @@ def initial_session_state() -> None:
 
     if "file_analysis_source" not in st.session_state:
         st.session_state.file_analysis_source = ""
+
+    if "voice_whisper_model" not in st.session_state:
+        st.session_state.voice_whisper_model = "auto"
+
+    if "voice_edge_voice" not in st.session_state:
+        st.session_state.voice_edge_voice = tts_edge.VOICES_FEMALE[0]
+
+    if "voice_max_seconds" not in st.session_state:
+        st.session_state.voice_max_seconds = 15
+
+    if "voice_last_transcript" not in st.session_state:
+        st.session_state.voice_last_transcript = ""
+
+    if "voice_reply_bytes" not in st.session_state:
+        st.session_state.voice_reply_bytes = b""
+
+    if "voice_autoplay" not in st.session_state:
+        st.session_state.voice_autoplay = False
+
+    if "voice_sent_token" not in st.session_state:
+        st.session_state.voice_sent_token = ""
+
+    if "voice_notice" not in st.session_state:
+        st.session_state.voice_notice = ""
 
 
 def ensure_ollama_ready() -> bool:
@@ -484,9 +512,12 @@ def render_file_analysis_section() -> None:
             if st.button(label=constants.FILES_TRANSCRIBE):
                 with st.spinner(text="در حال تبدیل صوت به متن با Whisper..."):
                     try:
-                        text, elapsed = analysis.transcribe_audio(
+                        text, elapsed, unloaded = analysis.transcribe_audio(
                             audio_path=saved_path,
+                            model_name=st.session_state.voice_whisper_model,
                         )
+                        if unloaded:
+                            st.session_state.model_ready = False
                         result = (
                             f"متن استخراج‌شده از صوت:\n\n{text}\n\n"
                             f"(زمان پردازش: {format_seconds(seconds=elapsed)})"
@@ -524,6 +555,206 @@ def render_chat_messages() -> None:
             st.markdown(body=content)
 
 
+def _free_whisper_if_chat_needs_ram() -> None:
+    """Release Whisper before chat so Ollama can reclaim RAM."""
+
+    if not whisper_module.is_model_loaded():
+        return
+
+    whisper_module.release_model()
+    st.session_state.model_ready = False
+
+
+def render_voice_player() -> None:
+    """Play the latest spoken reply. Autoplay only for a fresh answer."""
+
+    audio_bytes = st.session_state.voice_reply_bytes or b""
+    if not audio_bytes:
+        return
+
+    import base64
+
+    autoplay = bool(st.session_state.voice_autoplay)
+    st.session_state.voice_autoplay = False
+    encoded = base64.b64encode(audio_bytes).decode(encoding="ascii")
+    autoplay_attr = "autoplay" if autoplay else ""
+    st.markdown(
+        body=(
+            '<div dir="rtl">'
+            f'<audio controls {autoplay_attr} style="width: 100%">'
+            f'<source src="data:audio/mpeg;base64,{encoded}" type="audio/mpeg">'
+            "</audio></div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def process_voice_audio(audio_path: Path) -> None:
+    """STT, chat answer, then Edge TTS playback."""
+
+    st.session_state.voice_notice = ""
+
+    with st.spinner(text=constants.VOICE_STT_SPINNER):
+        text, _elapsed, unloaded = analysis.transcribe_audio(
+            audio_path=audio_path,
+            model_name=st.session_state.voice_whisper_model,
+        )
+    if unloaded:
+        st.session_state.model_ready = False
+
+    text = (text or "").strip()
+    st.session_state.voice_last_transcript = text
+
+    # Always free Whisper before chat; both models cannot stay in RAM together
+    # on typical 16GB machines.
+    if whisper_module.is_model_loaded():
+        whisper_module.release_model()
+        st.session_state.model_ready = False
+
+    if not text:
+        st.session_state.voice_notice = constants.VOICE_EMPTY_TRANSCRIPT
+        return
+
+    try:
+        with st.spinner(text="در حال فکر کردن..."):
+            answer, _elapsed_text = get_assistant_answer(user_prompt=text)
+    except Exception as exception:
+        st.session_state.voice_notice = str(exception)
+        return
+
+    if answer == constants.ERROR_NO_ANSWER:
+        st.session_state.voice_notice = constants.ERROR_NO_ANSWER
+        return
+
+    try:
+        with st.spinner(text=constants.VOICE_TTS_SPINNER):
+            audio_file, _words, _tts_elapsed, truncated = tts_edge.synthesize_persian(
+                text=answer,
+                voice=st.session_state.voice_edge_voice,
+            )
+    except Exception as exception:
+        st.session_state.voice_notice = (
+            f"پاسخ متنی آماده شد، ولی ساخت صدا ناموفق بود: {exception}"
+        )
+        return
+
+    st.session_state.voice_reply_bytes = Path(audio_file).read_bytes()
+    st.session_state.voice_autoplay = True
+    st.session_state.voice_notice = constants.VOICE_TRUNCATED if truncated else ""
+
+
+def render_voice_conversation_section() -> None:
+    """Persian voice conversation: record, STT, model answer, Edge playback."""
+
+    with st.expander(label=constants.VOICE_HEADER, expanded=True):
+        st.caption(body=constants.VOICE_HELP)
+        st.caption(body=constants.VOICE_RAM_HINT)
+
+        whisper_options = ["auto", "tiny", "base", "small", "medium", "turbo"]
+        whisper_labels = {
+            "auto": "خودکار — بهترین مدل با رم فعلی",
+            "tiny": "tiny — خیلی سبک، فارسی ضعیف‌تر",
+            "base": "base — سبک",
+            "small": "small — پیشنهادی برای رم کم",
+            "medium": "medium — دقیق‌تر (رم بیشتر)",
+            "turbo": "turbo — دقیق‌ترین (رم زیاد)",
+        }
+        current_whisper = st.session_state.voice_whisper_model
+        if current_whisper not in whisper_options:
+            current_whisper = "auto"
+
+        voice_options = [
+            tts_edge.VOICES_FEMALE[0],
+            tts_edge.VOICES_MALE[0],
+        ]
+        voice_labels = {
+            tts_edge.VOICES_FEMALE[0]: constants.VOICE_EDGE_FEMALE,
+            tts_edge.VOICES_MALE[0]: constants.VOICE_EDGE_MALE,
+        }
+
+        col_model, col_voice = st.columns(2)
+        with col_model:
+            st.session_state.voice_whisper_model = st.selectbox(
+                label=constants.VOICE_WHISPER_LABEL,
+                options=whisper_options,
+                index=whisper_options.index(current_whisper),
+                format_func=lambda name: whisper_labels.get(name, name),
+            )
+        with col_voice:
+            current_voice = st.session_state.voice_edge_voice
+            if current_voice not in voice_options:
+                current_voice = tts_edge.VOICES_FEMALE[0]
+            st.session_state.voice_edge_voice = st.selectbox(
+                label=constants.VOICE_EDGE_LABEL,
+                options=voice_options,
+                index=voice_options.index(current_voice),
+                format_func=lambda name: voice_labels.get(name, name),
+            )
+
+        st.slider(
+            label=constants.VOICE_SECONDS_LABEL,
+            min_value=5,
+            max_value=30,
+            step=1,
+            key="voice_max_seconds",
+        )
+
+        mic_name = recorder.get_default_input_device_name()
+        if mic_name:
+            st.caption(body=f"میکروفون سیستم: {mic_name}")
+        else:
+            st.caption(body=constants.VOICE_NO_MIC)
+
+        if st.button(
+            label=constants.VOICE_RECORD_BUTTON,
+            help=constants.VOICE_RECORD_HELP,
+        ):
+            try:
+                with st.spinner(text=constants.VOICE_RECORD_SPINNER):
+                    recorded_path = recorder.record_until_silence(
+                        max_seconds=float(st.session_state.voice_max_seconds),
+                    )
+                process_voice_audio(audio_path=recorded_path)
+            except Exception as exception:
+                st.error(body=str(exception))
+
+        browser_audio = st.audio_input(label=constants.VOICE_BROWSER_LABEL)
+        if browser_audio is not None:
+            audio_bytes = browser_audio.getvalue()
+            audio_token = f"{getattr(browser_audio, 'name', 'browser.wav')}:{len(audio_bytes)}"
+            if st.button(label=constants.VOICE_BROWSER_SEND):
+                if st.session_state.voice_sent_token == audio_token:
+                    st.info(body=constants.VOICE_BROWSER_ALREADY)
+                else:
+                    try:
+                        browser_name = str(getattr(browser_audio, "name", "") or "browser.wav")
+                        if Path(browser_name).suffix.lower() not in {
+                            ".wav",
+                            ".mp3",
+                            ".m4a",
+                            ".ogg",
+                            ".webm",
+                        }:
+                            browser_name = "browser.wav"
+                        saved_path = recorder.save_audio_bytes(
+                            file_name=browser_name,
+                            file_bytes=audio_bytes,
+                        )
+                        process_voice_audio(audio_path=saved_path)
+                        st.session_state.voice_sent_token = audio_token
+                    except Exception as exception:
+                        st.error(body=str(exception))
+
+        if st.session_state.voice_notice:
+            st.warning(body=st.session_state.voice_notice)
+
+        if st.session_state.voice_last_transcript:
+            st.markdown(body=f"**{constants.VOICE_TRANSCRIPT_LABEL}:**")
+            st.write(st.session_state.voice_last_transcript)
+
+        render_voice_player()
+
+
 def get_assistant_answer(user_prompt: str) -> tuple[str, str]:
     """
     Get assistant answer from Ollama and persist history.
@@ -534,6 +765,8 @@ def get_assistant_answer(user_prompt: str) -> tuple[str, str]:
 
     if not ensure_ollama_ready():
         raise RuntimeError(st.session_state.ollama_status_message)
+
+    _free_whisper_if_chat_needs_ram()
 
     if not st.session_state.model_ready:
         ok = prepare_selected_model(model_name=st.session_state.model_name)

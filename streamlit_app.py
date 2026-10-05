@@ -1,5 +1,5 @@
 """
-Offline AI Streamlit App - Phase D
+Offline AI Streamlit App - Phase E
 
 For Running:
 > streamlit run ./streamlit_app.py
@@ -42,6 +42,7 @@ def main() -> None:
         return
 
     functions.render_file_analysis_section()
+    functions.render_voice_conversation_section()
     st.divider()
     functions.render_chat_messages()
 

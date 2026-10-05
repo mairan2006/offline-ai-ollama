@@ -349,17 +349,29 @@ def estimate_model_ram_bytes(model_name: str) -> int:
     return model_constants.DEFAULT_MODEL_RAM_BYTES
 
 
-def can_fit_model_in_ram(model_name: str) -> tuple[bool, str, int]:
+def can_fit_model_in_ram(
+    model_name: str,
+    *,
+    available_bytes: Optional[int] = None,
+    margin_bytes: Optional[int] = None,
+) -> tuple[bool, str, int]:
     """
-    Check whether model can fit with safety margin.
+    Check whether model can fit with a RAM safety margin.
 
     Returns:
         ok, message, available_ram_bytes
     """
 
     needed = estimate_model_ram_bytes(model_name=model_name)
-    available = get_available_ram_bytes()
-    required_free = needed + model_constants.RAM_SAFETY_MARGIN_BYTES
+    available = (
+        get_available_ram_bytes() if available_bytes is None else int(available_bytes)
+    )
+    margin = (
+        model_constants.RAM_SAFETY_MARGIN_BYTES
+        if margin_bytes is None
+        else int(margin_bytes)
+    )
+    required_free = needed + margin
 
     if available >= required_free:
         message = (
@@ -375,6 +387,63 @@ def can_fit_model_in_ram(model_name: str) -> tuple[bool, str, int]:
     return False, message, available
 
 
+def _release_whisper_for_ram() -> int:
+    """
+    Unload cached Whisper if present.
+
+    Returns estimated bytes that should become free after release,
+    including a recent release that the OS may not have reported yet.
+    """
+
+    try:
+        import dtx_whisper as whisper_module
+    except Exception:
+        return 0
+
+    if whisper_module.is_model_loaded():
+        whisper_module.release_model()
+
+    return int(whisper_module.get_pending_freed_bytes())
+
+
+def _effective_available_ram_bytes() -> int:
+    """Available RAM plus Whisper bytes that were just released."""
+
+    available = get_available_ram_bytes()
+    try:
+        import dtx_whisper as whisper_module
+
+        pending = whisper_module.get_pending_freed_bytes()
+    except Exception:
+        pending = 0
+    return int(available + max(0, pending))
+
+
+def _suggest_lighter_models(model_name: str) -> str:
+    """Build a short Persian hint for lighter catalog models."""
+
+    current = estimate_model_ram_bytes(model_name=model_name)
+    suggestions: list[str] = []
+    for name, item in model_constants.MODEL_CATALOG.items():
+        if name == model_name:
+            continue
+        category = str(item.get("category", ""))
+        if category in {"امبدینگ", "vision", "بینایی"}:
+            continue
+        ram = int(item.get("approx_ram_bytes", 0))
+        if ram <= 0 or ram >= current:
+            continue
+        if category not in {"خیلی سبک", "سبک", "متعادل"} and ram > 2_500_000_000:
+            continue
+        suggestions.append(f"{name} (~{format_bytes(ram)})")
+        if len(suggestions) >= 3:
+            break
+
+    if not suggestions:
+        return "یک مدل سبک‌تر از لیست کنار صفحه انتخاب کنید."
+    return "مدل سبک‌تر پیشنهاد می‌شود: " + "، ".join(suggestions)
+
+
 def prepare_model_for_use(
     model_name: str,
     base_url: str = BASE_URL_OFFLINE,
@@ -384,7 +453,8 @@ def prepare_model_for_use(
     Make sure model is downloaded and RAM-safe to start.
 
     - pull if missing
-    - if RAM is low, unload previous loaded models
+    - if RAM is low, unload Whisper + previous Ollama models
+    - after cleanup, allow a smaller absolute free-RAM floor
     - refuse start if still not enough free RAM
     """
 
@@ -409,28 +479,85 @@ def prepare_model_for_use(
         if not is_model_downloaded(model_name=model_name, base_url=base_url):
             return False, f"دانلود مدل {model_name} کامل به نظر نمی‌رسد!"
 
-    fits, ram_message, _ = can_fit_model_in_ram(model_name=model_name)
+    fits, ram_message, _ = can_fit_model_in_ram(
+        model_name=model_name,
+        available_bytes=_effective_available_ram_bytes(),
+    )
     if fits:
+        try:
+            import dtx_whisper as whisper_module
+
+            whisper_module.clear_pending_freed_bytes()
+        except Exception:
+            pass
         return True, f"مدل {model_name} آماده است. {ram_message}"
 
     if progress_callback:
-        progress_callback("رم کافی نیست؛ در حال خارج کردن مدل‌های قبلی از رم...")
+        progress_callback(
+            "رم کافی نیست؛ در حال آزاد کردن Whisper و مدل‌های قبلی از رم..."
+        )
 
+    _release_whisper_for_ram()
     unloaded = unload_all_loaded_models(base_url=base_url)
     time.sleep(1.0)
 
-    fits_after, ram_message_after, _ = can_fit_model_in_ram(model_name=model_name)
-    if fits_after:
-        unloaded_text = "، ".join(unloaded) if unloaded else "هیچ مدلی"
+    effective_available = _effective_available_ram_bytes()
+
+    fits_preferred, ram_message_after, _ = can_fit_model_in_ram(
+        model_name=model_name,
+        available_bytes=effective_available,
+    )
+    if fits_preferred:
+        unloaded_text = "، ".join(unloaded) if unloaded else "هیچ مدل Ollama"
+        try:
+            import dtx_whisper as whisper_module
+
+            whisper_module.clear_pending_freed_bytes()
+        except Exception:
+            pass
         return True, (
             f"مدل {model_name} آماده است. "
             f"مدل‌های قبلی از رم خارج شد ({unloaded_text}). "
             f"{ram_message_after}"
         )
 
+    fits_minimum, ram_message_min, _ = can_fit_model_in_ram(
+        model_name=model_name,
+        available_bytes=effective_available,
+        margin_bytes=model_constants.RAM_ABSOLUTE_MIN_FREE_BYTES,
+    )
+    if fits_minimum:
+        try:
+            import dtx_whisper as whisper_module
+
+            whisper_module.clear_pending_freed_bytes()
+        except Exception:
+            pass
+        return True, (
+            f"مدل {model_name} با حاشیه امن کمتر آماده شد تا مکالمه قطع نشود. "
+            f"آزاد مؤثر تقریبی: {format_bytes(effective_available)}. "
+            "اگر سیستم کند شد، مدل سبک‌تری انتخاب کنید."
+        )
+
+    needed_only = estimate_model_ram_bytes(model_name=model_name)
+    if effective_available >= needed_only:
+        try:
+            import dtx_whisper as whisper_module
+
+            whisper_module.clear_pending_freed_bytes()
+        except Exception:
+            pass
+        return True, (
+            f"مدل {model_name} با رم بسیار فشرده آماده شد. "
+            f"آزاد مؤثر تقریبی: {format_bytes(effective_available)} | "
+            f"برآورد خود مدل: {format_bytes(needed_only)}. "
+            "پنجره‌های اضافی را ببندید؛ در غیر این صورت سیستم ممکن است کند شود."
+        )
+
     return False, (
         f"برای جلوگیری از کند شدن/کرش سیستم، مدل {model_name} استارت نشد. "
-        f"{ram_message_after}"
+        f"{ram_message_min} "
+        f"{_suggest_lighter_models(model_name=model_name)}"
     )
 
 

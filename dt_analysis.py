@@ -7,15 +7,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Final
 
+import time
+
 import dt_files as files
 import dt_llm_utility as llm_utility
 import dt_utility as utility
 import dtx_whisper as whisper_module
 from dt_ollama_manager import (
+    format_bytes,
     get_available_ram_bytes,
     prepare_model_for_use,
     unload_all_loaded_models,
 )
+from model_constants import RAM_SAFETY_MARGIN_BYTES
 from dtx_ollama import chat, chat_with_image
 
 VERSION: Final[str] = "1.0.0"
@@ -49,11 +53,21 @@ You are a professional translator to English.
 """
 
 
+def _free_whisper_if_chat_needs_ram(model_name: str) -> None:
+    """Drop cached Whisper before loading a chat/vision model."""
+
+    if not whisper_module.is_model_loaded():
+        return
+
+    whisper_module.release_model()
+
+
 def _ask_ollama(
     system_prompt: str,
     user_text: str,
     model_name: str,
 ) -> str:
+    _free_whisper_if_chat_needs_ram(model_name=model_name)
     ok, message = prepare_model_for_use(model_name=model_name)
     if not ok:
         raise RuntimeError(message)
@@ -77,6 +91,7 @@ def _ask_ollama(
 def analyze_image(image_path: Path, model_name: str) -> str:
     """Analyze image with vision-capable Ollama model."""
 
+    _free_whisper_if_chat_needs_ram(model_name=model_name)
     ok, message = prepare_model_for_use(model_name=model_name)
     if not ok:
         raise RuntimeError(message)
@@ -138,28 +153,62 @@ def translate_document(
     return translate_text(text=text, model_name=model_name, to_persian=to_persian)
 
 
-def transcribe_audio(audio_path: Path) -> tuple[str, float]:
+def transcribe_audio(
+    audio_path: Path,
+    model_name: str = "",
+) -> tuple[str, float, bool]:
     """
-    Transcribe audio with Whisper (fa/tiny).
+    Transcribe audio with Whisper (Persian).
+
     Unloads Ollama models first if free RAM is low.
+    Returns text, elapsed seconds, and whether Ollama models were unloaded.
     """
 
-    needed = whisper_module.WHISPER_TINY_RAM_BYTES
-    available = get_available_ram_bytes()
-    if available < needed:
-        unload_all_loaded_models()
+    requested = (model_name or whisper_module.STT_MODEL_NAME).replace(" ", "").lower()
+
+    # Free chat models first so a stronger Whisper can fit on low-RAM PCs.
+    unloaded_names = unload_all_loaded_models()
+    if unloaded_names:
+        time.sleep(0.8)
 
     available_after = get_available_ram_bytes()
-    if available_after < needed:
+    selected = whisper_module.choose_model_for_ram(
+        available_bytes=available_after,
+        preferred=requested,
+    )
+
+    if whisper_module.is_model_loaded() and not whisper_module.is_model_loaded(
+        model_name=selected
+    ):
+        whisper_module.release_model()
+
+    needed = whisper_module.estimate_ram_bytes(model_name=selected)
+    if not whisper_module.is_model_loaded(model_name=selected):
+        # faster-whisper needs less cushion than old openai-whisper path.
+        needed += max(500_000_000, RAM_SAFETY_MARGIN_BYTES // 4)
+
+    if not whisper_module.is_model_loaded(model_name=selected) and available_after < needed:
+        # Fall back one more step if still tight.
+        selected = whisper_module.choose_model_for_ram(
+            available_bytes=available_after,
+            preferred="auto",
+        )
+        needed = whisper_module.estimate_ram_bytes(model_name=selected) + 500_000_000
+
+    if not whisper_module.is_model_loaded(model_name=selected) and available_after < needed:
         raise RuntimeError(
-            "رم کافی برای Whisper نیست. لطفا برنامه‌های دیگر را ببندید و دوباره تلاش کنید."
+            "رم کافی برای Whisper نیست. "
+            f"آزاد: {format_bytes(num_bytes=available_after)} | "
+            f"موردنیاز تقریبی مدل {selected}: {format_bytes(num_bytes=needed)}. "
+            "برنامه‌های دیگر را ببندید یا مدل سبک‌تر (tiny/base) را انتخاب کنید."
         )
 
-    return whisper_module.transcribe(
+    text, elapsed = whisper_module.transcribe(
         language=whisper_module.STT_LANGUAGE,
-        model_name=whisper_module.STT_MODEL_NAME,
+        model_name=selected,
         audio_file_path=str(audio_path),
     )
+    return text, elapsed, bool(unloaded_names)
 
 
 if __name__ == "__main__":

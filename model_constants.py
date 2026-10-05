@@ -239,8 +239,11 @@ MODEL_CATALOG: Final[dict[str, dict]] = {
     },
 }
 
-# Keep at least this much free RAM for Windows/system stability.
+# Preferred free RAM kept for Windows/system stability.
 RAM_SAFETY_MARGIN_BYTES: Final[int] = 2_000_000_000
+
+# Absolute minimum free RAM after model estimate (used only after cleanup).
+RAM_ABSOLUTE_MIN_FREE_BYTES: Final[int] = 750_000_000
 
 # Fallback estimate when model is unknown.
 DEFAULT_MODEL_RAM_BYTES: Final[int] = 4_000_000_000

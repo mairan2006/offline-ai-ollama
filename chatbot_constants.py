@@ -84,6 +84,39 @@ FILES_ADD_TO_CHAT: Final[str] = "افزودن نتیجه به گفتگو"
 FILES_RESULT_LABEL: Final[str] = "نتیجه تحلیل"
 FILES_UNSUPPORTED: Final[str] = "این نوع فایل پشتیبانی نمی‌شود."
 FILES_NO_FILE: Final[str] = "ابتدا یک فایل آپلود کنید."
+VOICE_HEADER: Final[str] = "مکالمه صوتی"
+VOICE_HELP: Final[str] = (
+    "صحبت کنید. گفتار با Whisper کم‌رم (faster-whisper) به متن تبدیل می‌شود، "
+    "مدل جواب می‌دهد، و Edge همان پاسخ را با صدای فارسی می‌خواند. "
+    "چت آفلاین است؛ ساخت صدا با Edge به اینترنت نیاز دارد."
+)
+VOICE_WHISPER_LABEL: Final[str] = "مدل Whisper"
+VOICE_EDGE_LABEL: Final[str] = "صدای پاسخ"
+VOICE_SECONDS_LABEL: Final[str] = "حداکثر مدت ضبط (ثانیه)"
+VOICE_RECORD_BUTTON: Final[str] = "ضبط با میکروفون سیستم (تا سکوت)"
+VOICE_RECORD_HELP: Final[str] = (
+    "الگوی Sound Recorder: بعد از شروع حرف زدن، با کمی سکوت ضبط تمام می‌شود."
+)
+VOICE_BROWSER_LABEL: Final[str] = "یا با میکروفون مرورگر ضبط کنید"
+VOICE_BROWSER_SEND: Final[str] = "ارسال صدای مرورگر"
+VOICE_BROWSER_ALREADY: Final[str] = "این صدا قبلاً ارسال شده. برای نوبت بعد دوباره ضبط کنید."
+VOICE_TRANSCRIPT_LABEL: Final[str] = "متن شنیده‌شده"
+VOICE_EMPTY_TRANSCRIPT: Final[str] = (
+    "متنی از صدا استخراج نشد. واضح‌تر و کمی بلندتر فارسی صحبت کنید، "
+    "یا مدل Whisper را روی small/medium بگذارید."
+)
+VOICE_RAM_HINT: Final[str] = (
+    "برای دقت بهتر با رم کم: گزینه «خودکار» یا «small/medium» را بگذارید. "
+    "قبل از شنیدن، مدل چت موقتاً از رم خارج می‌شود و بعد دوباره لود می‌شود. "
+    "نزدیک میکروفون، واضح و بدون نویز صحبت کنید."
+)
+VOICE_RECORD_SPINNER: Final[str] = "در حال ضبط... بعد از سکوت، ضبط خودش تمام می‌شود."
+VOICE_STT_SPINNER: Final[str] = "در حال تبدیل گفتار به متن با Whisper..."
+VOICE_TTS_SPINNER: Final[str] = "در حال ساخت صدای پاسخ با Edge..."
+VOICE_TRUNCATED: Final[str] = "پاسخ طولانی بود؛ برای پخش، بخش اول آن خوانده شد."
+VOICE_NO_MIC: Final[str] = "میکروفون پیش‌فرض سیستم پیدا نشد. از ضبط مرورگر استفاده کنید."
+VOICE_EDGE_FEMALE: Final[str] = "زن — Dilara"
+VOICE_EDGE_MALE: Final[str] = "مرد — Farid"
 
 ELAPSED_TIME_LABEL: Final[str] = "زمان پاسخ"
 PROMPT_TOKENS_LABEL: Final[str] = "توکن ورودی"

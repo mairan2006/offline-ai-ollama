@@ -1,9 +1,11 @@
 """
-Offline AI Streamlit App - Phase G
+Offline AI Streamlit App - Phase H / I (Cursor-like UI + file attach)
 
 For Running:
 > streamlit run ./streamlit_app.py
 """
+
+from __future__ import annotations
 
 import streamlit as st
 
@@ -21,13 +23,10 @@ def main() -> None:
     if ollama_ok and not st.session_state.model_options_cache:
         functions.refresh_model_options()
 
-    # Prepare default/selected model once after Ollama is ready.
     if ollama_ok and not st.session_state.model_ready:
         functions.prepare_selected_model(model_name=st.session_state.model_name)
 
     functions.render_sidebar()
-
-    st.header(body=f"👋 {constants.PAGE_HEADER}", divider="rainbow")
 
     if not ollama_ok:
         st.error(body=st.session_state.ollama_status_message)
@@ -41,34 +40,31 @@ def main() -> None:
         )
         return
 
-    functions.render_file_analysis_section()
-    functions.render_voice_conversation_section()
-    st.divider()
-    functions.render_chat_messages()
+    has_turns = any(
+        message.get("role") != "system"
+        for message in st.session_state.messages
+    )
 
-    user_prompt = st.chat_input(placeholder=constants.USER_PROMPT_PLACEHOLDER)
-    if not user_prompt:
+    if has_turns:
+        functions.render_chat_messages()
+        functions.render_voice_player()
+    else:
+        st.markdown(body=constants.EMPTY_CHAT_HTML, unsafe_allow_html=True)
+
+    # Model pill above native composer (+ / mic / send arrow).
+    functions.render_composer()
+
+    chat_value = st.chat_input(
+        placeholder=constants.USER_PROMPT_PLACEHOLDER,
+        accept_file="multiple",
+        file_type=list(constants.CHAT_FILE_TYPES),
+        accept_audio=True,
+        max_upload_size=50,
+    )
+    if chat_value is None:
         return
 
-    user_prompt = user_prompt.strip()
-    if not user_prompt:
-        return
-
-    with st.chat_message(name="user"):
-        st.markdown(body=user_prompt)
-
-    with st.chat_message(name="assistant"):
-        with st.spinner(text="در حال فکر کردن..."):
-            try:
-                assistant_answer, elapsed_text = functions.get_assistant_answer(
-                    user_prompt=user_prompt,
-                )
-                st.markdown(body=assistant_answer)
-                if elapsed_text:
-                    st.caption(body=elapsed_text)
-            except Exception as exception:
-                message = str(exception).strip() or constants.ERROR_OLLAMA_CONNECTION
-                st.error(body=message)
+    functions.handle_chat_input_value(chat_value=chat_value)
 
 
 if __name__ == "__main__":

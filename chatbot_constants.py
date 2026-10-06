@@ -19,41 +19,292 @@ DEFAULT_MODEL_NAME: Final[str] = get_key_value(
 
 STREAMLIT_STYLE: Final[str] = """
 <style>
-    @import url('https://fonts.cdnfonts.com/css/iransansx');
+    @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
 
-    html, body, p, h1, h2, h3, h4, h5, h6, input, textarea {
-        font-family: 'IRANSansX', tahoma !important;
+    :root {
+        --oa-bg: #000000;
+        --oa-surface: #0a0a0a;
+        --oa-elevated: #141414;
+        --oa-composer: #121212;
+        --oa-border: #2a2a2a;
+        --oa-text: #ededed;
+        --oa-muted: #8a8a8a;
+        --oa-font: 'Vazirmatn', Tahoma, sans-serif;
     }
 
-    [role=radiogroup], pre, code {
-        direction: ltr;
-        text-align: left;
+    html, body, .stApp, button, input, textarea, select, li, p, div,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stChatMessage"],
+    [data-testid="stCaptionContainer"] {
+        font-family: var(--oa-font) !important;
+    }
+
+    /* Material ligature icons — must NOT use Vazirmatn */
+    [data-testid="stIconMaterial"],
+    [data-testid="stChatMessageAvatarUser"],
+    [data-testid="stChatMessageAvatarAssistant"],
+    [data-testid="stExpanderIcon"],
+    [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {
+        font-family: "Material Symbols Rounded", "Material Symbols Outlined",
+            "Material Icons", sans-serif !important;
+        font-style: normal !important;
+        font-weight: 400 !important;
+        letter-spacing: normal !important;
+        text-transform: none !important;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    .stApp { background: var(--oa-bg) !important; color: var(--oa-text) !important; }
+    [data-testid="stHeader"] { background: transparent !important; }
+
+    .block-container {
+        padding-top: 3.5rem !important;
+        padding-bottom: 2.5rem !important;
+        max-width: 720px !important;
     }
 
     .block-container, section, input, textarea,
-    [data-testid="stSidebar"], [data-testid="stChatInput"] {
-        direction: rtl;
-        text-align: right;
+    [data-testid="stSidebar"] {
+        direction: rtl; text-align: right;
+    }
+    /* Keep chat_input LTR so + / mic / send stay in Streamlit's native order */
+    [data-testid="stChatInput"] {
+        direction: ltr !important;
+        text-align: left !important;
+    }
+    [data-testid="stChatInput"] textarea {
+        direction: rtl !important;
+        text-align: right !important;
+    }
+    [role=radiogroup], pre, code, [data-testid="stCode"] {
+        direction: ltr; text-align: left;
     }
 
-    [data-testid="stChatInput"] textarea {
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: var(--oa-surface) !important;
+        border-left: 1px solid #1a1a1a;
+    }
+    [data-testid="stSidebar"] .element-container {
+        margin-bottom: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+        gap: 0.1rem !important;
+        margin: 0 !important;
+        align-items: center !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0.05rem !important;
+    }
+    [data-testid="stSidebar"] .stButton { margin: 0 !important; }
+    [data-testid="stSidebar"] .stButton > button {
+        background: transparent !important;
+        border: none !important;
+        border-radius: 6px !important;
+        color: #9a9a9a !important;
+        font-family: var(--oa-font) !important;
+        font-size: 0.66rem !important;
+        font-weight: 400 !important;
+        line-height: 1.2 !important;
+        text-align: right !important;
+        justify-content: flex-start !important;
+        padding: 0.08rem 0.28rem !important;
+        min-height: 1.1rem !important;
+        height: auto !important;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background: #161616 !important;
+        color: #ececec !important;
+    }
+    [data-testid="stSidebar"] button[kind="primary"] {
+        background: #e8e8e8 !important;
+        color: #111 !important;
+        border-radius: 999px !important;
+        font-size: 0.8rem !important;
+        font-weight: 600 !important;
+        justify-content: center !important;
+        padding: 0.42rem 0.75rem !important;
+        min-height: 2rem !important;
+        margin: 0.2rem 0 0.4rem 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="column"]:has(.oa-del-wrap) .stButton > button {
+        justify-content: center !important;
+        text-align: center !important;
+        font-size: 0.65rem !important;
+        opacity: 0.4;
+        min-height: 1.1rem !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+    }
+    [data-testid="stSidebar"] [data-testid="column"]:has(.oa-del-wrap) .stButton > button:hover {
+        opacity: 1; color: #ff6b6b !important;
+        background: rgba(255,80,80,0.12) !important;
+    }
+
+    .oa-side-brand {
+        direction: rtl; font-weight: 700; font-size: 0.95rem;
+        color: var(--oa-text); margin: 0.1rem 0 0.55rem 0;
+        font-family: var(--oa-font);
+    }
+    .oa-side-section {
+        direction: rtl; color: #555; font-size: 0.58rem; font-weight: 600;
+        letter-spacing: 0.08em; margin: 0.25rem 0 0.05rem 0;
+        text-transform: uppercase; font-family: var(--oa-font);
+    }
+    .oa-status-line { direction: rtl; color: #777; font-size: 0.7rem; margin-top: 0.4rem; }
+    .oa-spacer-top { height: 14vh; }
+    .oa-chips { direction: rtl; display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.5rem 0; }
+    .oa-chip {
+        display: inline-flex; gap: 0.3rem; padding: 0.25rem 0.55rem;
+        border: 1px solid #2a2a2a; border-radius: 999px; background: #141414;
+        color: #eee; font-size: 0.75rem; font-family: var(--oa-font);
+    }
+    .oa-chip small { color: #888; font-size: 0.65rem; }
+
+    /* Sidebar model pill — away from chat_input + / mic / send */
+    [data-testid="stSidebar"] .oa-side-model + div [data-testid="stSelectbox"],
+    [data-testid="stSidebar"] [data-testid="stSelectbox"]:first-of-type {
+        margin: 0.15rem 0 0.45rem 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+        background: #121212 !important;
+        border: 1px solid #2c2c2c !important;
+        border-radius: 999px !important;
+        min-height: 1.85rem !important;
+        font-size: 0.78rem !important;
+        font-family: var(--oa-font) !important;
+    }
+
+    .oa-attach-hint {
         direction: rtl;
-        text-align: right;
+        color: #7a7a7a;
+        font-size: 0.75rem;
+        margin: 0 0 0.35rem 0;
+        font-family: var(--oa-font);
+    }
+
+    /* Native chat_input — Cursor-like composer */
+    [data-testid="stChatInput"] {
+        background: transparent !important;
+        border-top: none !important;
+        padding-bottom: 0.75rem !important;
+    }
+    [data-testid="stChatInput"] > div {
+        background: #121212 !important;
+        border: 1px solid #2c2c2c !important;
+        border-radius: 18px !important;
+        max-width: 720px;
+        margin: 0 auto !important;
+    }
+    [data-testid="stChatInput"] textarea {
+        font-family: var(--oa-font) !important;
+        font-size: 0.98rem !important;
+        color: #ededed !important;
+    }
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: #6a6a6a !important;
+        font-family: var(--oa-font) !important;
+    }
+
+    /* Small + / mic / send icons */
+    [data-testid="stChatInput"] button {
+        min-height: 1.75rem !important;
+        max-height: 1.75rem !important;
+        width: 1.75rem !important;
+        min-width: 1.75rem !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+        color: rgba(237, 237, 237, 0.85) !important;
+    }
+    [data-testid="stChatInput"] button svg {
+        width: 1.05rem !important;
+        height: 1.05rem !important;
+    }
+    [data-testid="stChatInputFileUploadButton"] {
+        order: -1;
+    }
+
+    .oa-hist-list {
+        direction: rtl;
+        margin: 0.15rem 0 0.35rem 0;
+        font-family: 'Vazirmatn', Tahoma, sans-serif !important;
+    }
+    .oa-hist-row {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.12rem 0.1rem;
+        border-radius: 6px;
+        line-height: 1.25;
+    }
+    .oa-hist-row:hover { background: #141414; }
+    .oa-hist-item {
+        flex: 1;
+        color: #9a9a9a !important;
+        text-decoration: none !important;
+        font-size: 0.72rem !important;
+        font-weight: 400 !important;
+        font-family: 'Vazirmatn', Tahoma, sans-serif !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .oa-hist-item:hover { color: #ececec !important; }
+    .oa-hist-active {
+        color: #f2f2f2 !important;
+        font-weight: 500 !important;
+    }
+    .oa-hist-del {
+        flex: 0 0 auto;
+        color: #555 !important;
+        text-decoration: none !important;
+        font-size: 0.7rem !important;
+        width: 1.2rem;
+        height: 1.2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        opacity: 0.55;
+    }
+    .oa-hist-del:hover {
+        opacity: 1;
+        color: #ff6b6b !important;
+        background: rgba(255,80,80,0.12);
+    }
+
+    @media (max-width: 768px) {
+        .block-container { padding-top: 1.2rem !important; }
+        .oa-spacer-top { height: 5vh; }
     }
 </style>
 """
 
 ABOUT: Final[str] = """
-<p style="direction: rtl; text-align: justify;">
-    هوش مصنوعی آفلاین با Ollama
-</p>
+<p class="oa-status-line">آفلاین · Ollama</p>
+"""
+
+BRAND_HTML: Final[str] = ""
+
+EMPTY_CHAT_HTML: Final[str] = """
+<div class="oa-spacer-top"></div>
+"""
+
+SIDEBAR_BRAND_HTML: Final[str] = """
+<div class="oa-side-brand" dir="rtl">هوش مصنوعی آفلاین</div>
 """
 
 SETTINGS: Final[str] = "تنظیمات"
 PAGE_TITLE: Final[str] = "هوش مصنوعی آفلاین"
-PAGE_HEADER: Final[str] = "به هوش مصنوعی آفلاین خوش آمدید"
+PAGE_HEADER: Final[str] = "هوش مصنوعی آفلاین"
+PAGE_TAGLINE: Final[str] = ""
+TOOLS_HEADER: Final[str] = "ابزارها"
+TOOLS_TAB_FILES: Final[str] = "فایل"
+TOOLS_TAB_VOICE: Final[str] = "صوت"
+MODEL_DETAILS_EXPANDER: Final[str] = "جزئیات مدل"
 SELECTED_MODEL: Final[str] = "مدل فعلی:"
-SELECT_YOUR_MODEL: Final[str] = "مدل را انتخاب کنید:"
+SELECT_YOUR_MODEL: Final[str] = "مدل"
 MODEL_DETAILS_LABEL: Final[str] = "جزئیات مدل انتخاب‌شده"
 DOWNLOAD_SIZE_LABEL: Final[str] = "حجم دانلود تقریبی"
 RAM_NEED_LABEL: Final[str] = "رم تقریبی موردنیاز"
@@ -61,11 +312,34 @@ MODEL_CATEGORY_LABEL: Final[str] = "دسته"
 MODEL_DESCRIPTION_LABEL: Final[str] = "توضیحات"
 DOWNLOADED_YES: Final[str] = "وضعیت: دانلود شده و روی سیستم موجود است"
 DOWNLOADED_NO: Final[str] = "وضعیت: هنوز دانلود نشده (با انتخاب، دانلود شروع می‌شود)"
-USER_PROMPT_PLACEHOLDER: Final[str] = "لطفا سوال خودتان را اینجا بنویسید..."
+USER_PROMPT_PLACEHOLDER: Final[str] = "بپرسید، بسازید، یا فایل پیوست کنید..."
 CLEAR_CHAT: Final[str] = "گفتگوی جدید"
-REFRESH_MODELS: Final[str] = "بروزرسانی لیست مدل‌ها"
-HISTORY_HEADER: Final[str] = "تاریخچه گفتگوها"
-HISTORY_SELECT_LABEL: Final[str] = "گفتگوی قبلی را انتخاب کنید (با انتخاب، فوری بارگذاری می‌شود):"
+REFRESH_MODELS: Final[str] = "بروزرسانی مدل‌ها"
+HISTORY_HEADER: Final[str] = "گفتگوها"
+HISTORY_SELECT_LABEL: Final[str] = "گفتگوی قبلی"
+HISTORY_DELETE_ICON: Final[str] = "🗑"
+COMPOSER_SEND: Final[str] = "↑"
+COMPOSER_MIC: Final[str] = "🎤"
+ATTACH_PREVIEW_LABEL: Final[str] = "پیوست‌شده"
+ATTACH_REMOVE: Final[str] = "حذف پیوست"
+ATTACH_WAITING: Final[str] = "فایل آماده است — بنویسید چه کاری انجام شود"
+ATTACH_UNSUPPORTED: Final[str] = "این نوع فایل پشتیبانی نمی‌شود."
+CHAT_FILE_TYPES: Final[tuple[str, ...]] = (
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "bmp",
+    "pdf",
+    "txt",
+    "md",
+    "markdown",
+    "csv",
+    "mp3",
+    "wav",
+    "m4a",
+    "ogg",
+)
 HISTORY_DELETE: Final[str] = "حذف گفتگوی انتخاب‌شده"
 HISTORY_DELETE_ALL: Final[str] = "حذف همه تاریخچه"
 HISTORY_EMPTY: Final[str] = "هنوز گفتگوی ذخیره‌شده‌ای وجود ندارد."

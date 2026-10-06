@@ -35,10 +35,29 @@ def set_page_config() -> None:
 
     st.set_page_config(
         page_title=constants.PAGE_TITLE,
-        page_icon="👋",
+        page_icon="◉",
         layout="centered",
+        initial_sidebar_state="expanded",
     )
     st.markdown(body=constants.STREAMLIT_STYLE, unsafe_allow_html=True)
+
+
+def render_brand_header() -> None:
+    """Product brand as the first-viewport hero signal."""
+
+    st.markdown(body=constants.BRAND_HTML, unsafe_allow_html=True)
+
+
+def render_chat_empty_state() -> None:
+    """Soft empty state when there is no user/assistant turn yet."""
+
+    has_turns = any(
+        message.get(llm_utility.KEY_NAME_ROLE) != llm_utility.ROLE_SYSTEM
+        for message in st.session_state.messages
+    )
+    if has_turns:
+        return
+    st.markdown(body=constants.EMPTY_CHAT_HTML, unsafe_allow_html=True)
 
 
 def initial_session_state() -> None:
@@ -127,6 +146,9 @@ def initial_session_state() -> None:
     if "voice_used_whisper" not in st.session_state:
         st.session_state.voice_used_whisper = ""
 
+    if "pending_attachments" not in st.session_state:
+        st.session_state.pending_attachments = []
+
 
 def ensure_ollama_ready() -> bool:
     """Check Ollama and start it if needed. Cache result in session."""
@@ -185,6 +207,7 @@ def start_new_conversation() -> None:
     st.session_state.conversation_id = None
     st.session_state.history_title_hint = ""
     st.session_state._history_sync_id = None
+    st.session_state.pending_attachments = []
     _request_history_select(conversation_id=None)
     st.session_state.history_notice = constants.HISTORY_NEW
 
@@ -265,6 +288,7 @@ def load_conversation(conversation_id: int) -> None:
     _request_history_select(conversation_id=conversation_id)
     st.session_state.voice_last_transcript = ""
     st.session_state.voice_reply_bytes = b""
+    st.session_state.pending_attachments = []
     st.session_state.history_notice = (
         f"{constants.HISTORY_LOADED} #{conversation_id} | "
         f"{conversation.get('title', '')} | "
@@ -293,81 +317,76 @@ def prepare_selected_model(model_name: str) -> bool:
 
 
 def render_history_section() -> None:
-    """Render conversation history controls in sidebar."""
+    """Render conversation history as a dense Cursor-like HTML list."""
 
-    st.markdown(body=f"**{constants.HISTORY_HEADER}**")
+    st.markdown(
+        body=f'<div class="oa-side-section">{constants.HISTORY_HEADER}</div>',
+        unsafe_allow_html=True,
+    )
 
-    # Must run before selectbox — never write history_select_box after it exists.
-    _apply_history_select_pending()
+    # Handle click from HTML history links / delete forms via query params.
+    params = st.query_params
+    open_id = params.get("open")
+    delete_id = params.get("del")
+    if open_id is not None:
+        try:
+            target = int(str(open_id))
+            if st.session_state.conversation_id != target:
+                load_conversation(conversation_id=target)
+            st.query_params.clear()
+            st.rerun()
+        except Exception:
+            st.query_params.clear()
+    if delete_id is not None:
+        try:
+            target = int(str(delete_id))
+            history.delete_conversation(conversation_id=target)
+            if st.session_state.conversation_id == target:
+                start_new_conversation()
+            st.session_state.history_notice = constants.HISTORY_DELETED
+            st.query_params.clear()
+            st.rerun()
+        except Exception:
+            st.query_params.clear()
 
     conversations = history.list_conversations(limit=50)
     if not conversations:
         st.caption(body=constants.HISTORY_EMPTY)
-        st.session_state.history_select_box = -1
-        st.session_state._history_sync_id = st.session_state.conversation_id
     else:
-        ids: list[int] = [-1]
-        labels: dict[int, str] = {-1: constants.HISTORY_NONE_OPTION}
+        rows: list[str] = ['<div class="oa-hist-list" dir="rtl">']
         for item in conversations:
             conversation_id = int(item["id"])
-            ids.append(conversation_id)
-            labels[conversation_id] = (
-                f"#{conversation_id} | {item['title']} | {item['model_name']}"
+            title = str(item.get("title") or "گفتگو").strip() or "گفتگو"
+            if len(title) > 32:
+                title = title[:32] + "…"
+            # Escape minimal HTML
+            safe_title = (
+                title.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
             )
-
-        # Keep dropdown synced when app logic changes the active conversation.
-        if st.session_state._history_sync_id != st.session_state.conversation_id:
-            st.session_state.history_select_box = (
-                int(st.session_state.conversation_id)
-                if st.session_state.conversation_id is not None
-                else -1
+            active = (
+                " oa-hist-active"
+                if st.session_state.conversation_id == conversation_id
+                else ""
             )
-            st.session_state._history_sync_id = st.session_state.conversation_id
-
-        if st.session_state.history_select_box not in ids:
-            st.session_state.history_select_box = (
-                int(st.session_state.conversation_id)
-                if st.session_state.conversation_id in ids
-                else -1
+            rows.append(
+                '<div class="oa-hist-row">'
+                f'<a class="oa-hist-item{active}" href="?open={conversation_id}">'
+                f"{safe_title}</a>"
+                f'<a class="oa-hist-del" href="?del={conversation_id}" '
+                f'title="حذف">🗑</a>'
+                "</div>"
             )
+        rows.append("</div>")
+        st.markdown(body="".join(rows), unsafe_allow_html=True)
 
-        selected_id = st.selectbox(
-            label=constants.HISTORY_SELECT_LABEL,
-            options=ids,
-            format_func=lambda conversation_id: labels.get(
-                conversation_id,
-                constants.HISTORY_NONE_OPTION,
-            ),
-            key="history_select_box",
-        )
-        if selected_id == -1:
-            selected_id = None
-
-        # Load immediately on dropdown change (no separate load button).
-        if (
-            selected_id is not None
-            and selected_id != st.session_state.conversation_id
-        ):
-            load_conversation(conversation_id=int(selected_id))
-            st.rerun()
-
-        if st.button(label=constants.HISTORY_DELETE, use_container_width=True):
-            if selected_id is None and st.session_state.conversation_id is None:
-                st.session_state.history_notice = "لطفا یک گفتگو انتخاب کنید."
-            else:
-                target_id = selected_id or st.session_state.conversation_id
-                history.delete_conversation(conversation_id=int(target_id))
-                if st.session_state.conversation_id == target_id:
-                    start_new_conversation()
-                else:
-                    st.session_state._history_sync_id = None
-                    _request_history_select(
-                        conversation_id=st.session_state.conversation_id,
-                    )
-                st.session_state.history_notice = constants.HISTORY_DELETED
-                st.rerun()
-
-    if st.button(label=constants.HISTORY_DELETE_ALL, use_container_width=True):
+    if conversations and st.button(
+        label=constants.HISTORY_DELETE_ALL,
+        use_container_width=True,
+        key="hist_delete_all",
+    ):
         history.delete_all_conversations()
         start_new_conversation()
         st.session_state.history_notice = "همه تاریخچه حذف شد."
@@ -376,125 +395,328 @@ def render_history_section() -> None:
     if st.session_state.history_notice:
         st.caption(body=st.session_state.history_notice)
 
-    current_id = st.session_state.conversation_id
-    if current_id is None:
-        st.caption(body="گفتگوی فعلی: هنوز ذخیره نشده (بعد از اولین پاسخ ذخیره می‌شود)")
-    else:
-        st.caption(body=f"گفتگوی فعلی: #{current_id}")
+
+def apply_selected_model(selected_name: str) -> None:
+    """Switch model when composer/sidebar selection changes."""
+
+    if selected_name == st.session_state.model_name:
+        return
+
+    previous_model = st.session_state.model_name
+    st.session_state.model_name = selected_name
+    st.session_state.model_ready = False
+
+    ok = prepare_selected_model(model_name=selected_name)
+    if ok:
+        if st.session_state.conversation_id is not None:
+            persist_current_conversation()
+        return
+
+    st.session_state.model_name = previous_model
+    st.session_state.model_ready = False
+    st.error(body=st.session_state.model_status_message)
+    st.rerun()
+
+
+def render_model_selector(key: str = "composer_model") -> None:
+    """Compact model dropdown for the composer toolbar (short names)."""
+
+    if not st.session_state.ollama_ready:
+        return
+
+    if not st.session_state.model_options_cache:
+        refresh_model_options()
+
+    options = st.session_state.model_options_cache
+    if not options:
+        return
+
+    # Short names only — Cursor-like pill, not long download labels.
+    names = [item[0] for item in options]
+    current_name = st.session_state.model_name
+    current_index = names.index(current_name) if current_name in names else 0
+
+    selected_name = st.selectbox(
+        label=constants.SELECT_YOUR_MODEL,
+        options=names,
+        index=current_index,
+        key=key,
+        label_visibility="collapsed",
+    )
+    apply_selected_model(selected_name=str(selected_name))
+
+
+def render_composer() -> None:
+    """
+    Chips above native chat_input only.
+    Model picker is in the sidebar (never overlaps + / mic / send).
+    """
+
+    render_attachment_preview()
+
+
+def render_attachment_preview() -> None:
+    """Show pending attachments as chips — preview only, no suggestions."""
+
+    items = list(st.session_state.pending_attachments or [])
+    if not items:
+        return
+
+    chips_html: list[str] = ['<div class="oa-chips" dir="rtl">']
+    for item in items:
+        name = str(item.get("name", "فایل"))
+        kind = str(item.get("kind", ""))
+        chips_html.append(
+            f'<span class="oa-chip">{name} <small>{kind}</small></span>'
+        )
+    chips_html.append("</div>")
+    st.markdown(body="".join(chips_html), unsafe_allow_html=True)
+    st.markdown(
+        body=f'<p class="oa-attach-hint" dir="rtl">{constants.ATTACH_WAITING}</p>',
+        unsafe_allow_html=True,
+    )
+    if st.button(label=constants.ATTACH_REMOVE, key="clear_pending_attachments"):
+        clear_pending_attachments()
+        st.rerun()
 
 
 def render_sidebar() -> None:
-    """Render sidebar settings including model dropdown and history."""
+    """Cursor-like sidebar: brand, new chat, compact history, light settings."""
 
     with st.sidebar:
-        st.header(body=constants.SETTINGS)
+        st.markdown(body=constants.SIDEBAR_BRAND_HTML, unsafe_allow_html=True)
 
-        st.write(constants.OLLAMA_STATUS_LABEL)
-        if st.session_state.ollama_ready:
-            st.success(body=st.session_state.ollama_status_message)
-        elif st.session_state.ollama_status_message:
-            st.error(body=st.session_state.ollama_status_message)
-        else:
-            st.warning(body=constants.CHECKING_OLLAMA)
+        st.markdown(body='<div class="oa-new-chat-wrap">', unsafe_allow_html=True)
+        if st.button(
+            label=constants.CLEAR_CHAT,
+            use_container_width=True,
+            key="sidebar_new_chat",
+            type="primary",
+        ):
+            start_new_conversation()
+            st.rerun()
+        st.markdown(body="</div>", unsafe_allow_html=True)
 
-        available_ram = get_available_ram_bytes()
-        st.write(constants.RAM_STATUS_LABEL)
-        st.caption(body=f"رم آزاد فعلی: {format_bytes(available_ram)}")
-        st.caption(
-            body=(
-                f"حاشیه امن سیستم: "
-                f"{format_bytes(model_constants.RAM_SAFETY_MARGIN_BYTES)}"
-            )
+        # Model pill — sidebar keeps it off the + / mic / send row
+        st.markdown(
+            body='<div class="oa-side-model" dir="rtl">',
+            unsafe_allow_html=True,
         )
+        render_model_selector(key="sidebar_model_select")
+        st.markdown(body="</div>", unsafe_allow_html=True)
 
-        if st.session_state.ollama_ready:
-            if not st.session_state.model_options_cache:
-                refresh_model_options()
+        render_history_section()
 
-            options = st.session_state.model_options_cache
-            labels = [item[1] for item in options]
-            names = [item[0] for item in options]
-
-            current_name = st.session_state.model_name
-            if current_name in names:
-                current_index = names.index(current_name)
-            else:
-                current_index = 0
-
-            selected_label = st.selectbox(
-                label=constants.SELECT_YOUR_MODEL,
-                options=labels,
-                index=current_index,
-                help="در لیست فقط نام و حجم دانلود آمده؛ توضیح کامل پایین نمایش داده می‌شود.",
+        with st.expander(label=constants.SETTINGS, expanded=False):
+            if st.session_state.ollama_ready:
+                st.caption(
+                    body=st.session_state.ollama_status_message or "Ollama آماده است"
+                )
+            available_ram = get_available_ram_bytes()
+            st.caption(
+                body=(
+                    f"رم: {format_bytes(available_ram)} | "
+                    f"مدل: {st.session_state.model_name}"
+                )
             )
-            selected_name = names[labels.index(selected_label)]
-            selected_downloaded = options[labels.index(selected_label)][2]
-            details = get_model_details(model_name=selected_name)
-
-            st.markdown(body=f"**{constants.MODEL_DETAILS_LABEL}**")
-            st.markdown(body=f"**{details['title']}** (`{details['name']}`)")
-            st.write(f"{constants.MODEL_CATEGORY_LABEL}: {details['category']}")
-            st.write(
-                f"{constants.DOWNLOAD_SIZE_LABEL}: **{details['download_label']}**"
-            )
-            st.write(f"{constants.RAM_NEED_LABEL}: **{details['ram_label']}**")
-            if selected_downloaded:
-                st.success(body=constants.DOWNLOADED_YES)
-            else:
-                st.warning(body=constants.DOWNLOADED_NO)
-
-            st.markdown(body=f"**{constants.MODEL_DESCRIPTION_LABEL}:**")
-            st.info(body=details["description"])
-
-            fits, ram_msg, _ = can_fit_model_in_ram(model_name=selected_name)
-            if fits:
-                st.caption(body=ram_msg)
-            else:
-                st.warning(body=ram_msg)
-
-            if selected_name != st.session_state.model_name:
-                previous_model = st.session_state.model_name
-                st.session_state.model_name = selected_name
-                st.session_state.model_ready = False
-
-                ok = prepare_selected_model(model_name=selected_name)
-                if ok:
-                    st.success(body=st.session_state.model_status_message)
-                    st.info(
-                        body=(
-                            f"مدل از «{previous_model}» به «{selected_name}» تغییر کرد."
-                        )
-                    )
-                    if st.session_state.conversation_id is not None:
-                        persist_current_conversation()
-                else:
-                    st.error(body=st.session_state.model_status_message)
-                    st.session_state.model_name = previous_model
-                    st.session_state.model_ready = False
-                    st.rerun()
-
-            st.write(f"{constants.SELECTED_MODEL}")
-            st.info(body=st.session_state.model_name)
-
-            st.write(constants.MODEL_STATUS_LABEL)
-            if st.session_state.model_ready and st.session_state.model_status_message:
-                st.success(body=st.session_state.model_status_message)
-            elif st.session_state.model_status_message:
-                st.warning(body=st.session_state.model_status_message)
-
-            if st.button(label=constants.REFRESH_MODELS):
+            if st.button(label=constants.REFRESH_MODELS, use_container_width=True):
                 refresh_model_options()
                 st.session_state.model_ready = False
                 st.rerun()
-
-        st.divider()
-        render_history_section()
+            whisper_options = ["auto", "tiny", "base", "small", "medium", "turbo"]
+            if st.session_state.voice_whisper_model not in whisper_options:
+                st.session_state.voice_whisper_model = "auto"
+            st.selectbox(
+                label=constants.VOICE_WHISPER_LABEL,
+                options=whisper_options,
+                key="voice_whisper_model",
+            )
+            engine_options = tts_router.ENGINE_OPTIONS
+            st.selectbox(
+                label=constants.VOICE_TTS_ENGINE_LABEL,
+                options=engine_options,
+                format_func=lambda name: (
+                    constants.VOICE_TTS_EDGE
+                    if name == tts_router.ENGINE_EDGE
+                    else constants.VOICE_TTS_OFFLINE
+                ),
+                key="voice_tts_engine",
+            )
+            st.caption(body="برای صحبت از آیکون میکروفون داخل باکس پیام استفاده کنید.")
 
         st.markdown(body=constants.ABOUT, unsafe_allow_html=True)
 
-        if st.button(label=constants.CLEAR_CHAT):
-            start_new_conversation()
-            st.rerun()
+
+def parse_chat_input(chat_value) -> tuple[str, list, Optional[object]]:
+    """Return text, uploaded files, optional audio from st.chat_input."""
+
+    if chat_value is None:
+        return "", [], None
+
+    if isinstance(chat_value, str):
+        return chat_value.strip(), [], None
+
+    text = str(getattr(chat_value, "text", "") or "").strip()
+    uploaded = list(getattr(chat_value, "files", None) or [])
+    audio = getattr(chat_value, "audio", None)
+    return text, uploaded, audio
+
+
+def handle_chat_input_value(chat_value) -> None:
+    """
+    Process native chat_input submission.
+
+    - file without text: preview chips only (same composer for the next prompt)
+    - audio: run voice pipeline
+    - text (+ optional files/pending): answer / apply to file
+    """
+
+    text, uploaded_files, audio = parse_chat_input(chat_value)
+
+    if audio is not None:
+        try:
+            audio_bytes = audio.getvalue()
+            audio_name = str(getattr(audio, "name", "") or "browser.wav")
+            if Path(audio_name).suffix.lower() not in {
+                ".wav",
+                ".mp3",
+                ".m4a",
+                ".ogg",
+                ".webm",
+            }:
+                audio_name = "browser.wav"
+            saved_path = recorder.save_audio_bytes(
+                file_name=audio_name,
+                file_bytes=audio_bytes,
+            )
+            process_voice_audio(audio_path=saved_path)
+        except Exception as exception:
+            st.error(
+                body=(
+                    "پردازش صدا ناموفق بود. "
+                    f"({exception})"
+                )
+            )
+        return
+
+    if uploaded_files and not text:
+        st.session_state.pending_attachments = store_uploaded_files(
+            uploaded_files=uploaded_files,
+        )
+        st.rerun()
+        return
+
+    if not text:
+        return
+
+    try:
+        handle_chat_submission(
+            text=text,
+            uploaded_files=uploaded_files or None,
+        )
+        st.rerun()
+    except Exception as exception:
+        st.error(body=str(exception).strip() or constants.ERROR_OLLAMA_CONNECTION)
+
+
+def clear_pending_attachments() -> None:
+    """Clear queued file attachments."""
+
+    st.session_state.pending_attachments = []
+
+
+def store_uploaded_files(uploaded_files: list) -> list[dict]:
+    """Save Streamlit uploaded files and return attachment metadata."""
+
+    stored: list[dict] = []
+    for uploaded in uploaded_files:
+        name = str(getattr(uploaded, "name", "") or "file")
+        raw = uploaded.getvalue()
+        path = files.save_uploaded_file(file_name=name, file_bytes=raw)
+        kind = files.detect_file_kind(file_name=name)
+        stored.append(
+            {
+                "name": name,
+                "path": str(path),
+                "kind": kind,
+                "size": len(raw),
+            }
+        )
+    return stored
+
+
+def handle_chat_submission(text: str, uploaded_files: Optional[list] = None) -> None:
+    """
+    Handle chat input text and optional + file attachments.
+
+    - File without text: store and preview only (no model, no suggestions).
+    - Text with attachment(s): apply the user prompt to each file.
+    - Text only: normal chat.
+    """
+
+    text = (text or "").strip()
+    new_files = list(uploaded_files or [])
+    if new_files:
+        st.session_state.pending_attachments = store_uploaded_files(new_files)
+
+    pending = list(st.session_state.pending_attachments or [])
+
+    if not text:
+        # Attach-only: preview is enough; do not invent tasks.
+        return
+
+    if pending:
+        unsupported = [item for item in pending if item.get("kind") == "unknown"]
+        if unsupported:
+            names = "، ".join(str(item.get("name", "")) for item in unsupported)
+            raise RuntimeError(f"{constants.ATTACH_UNSUPPORTED} ({names})")
+
+        answer_parts: list[str] = []
+        display_names: list[str] = []
+        for item in pending:
+            name = str(item.get("name", "فایل"))
+            path = Path(str(item.get("path", "")))
+            display_names.append(name)
+            result, unloaded = analysis.apply_prompt_to_file(
+                file_path=path,
+                file_name=name,
+                user_prompt=text,
+                model_name=st.session_state.model_name,
+                whisper_model=st.session_state.voice_whisper_model,
+            )
+            if unloaded:
+                st.session_state.model_ready = False
+            if len(pending) > 1:
+                answer_parts.append(f"### {name}\n{result}")
+            else:
+                answer_parts.append(result)
+
+        user_visible = (
+            f"{constants.HISTORY_FILE_PREFIX} "
+            + "، ".join(display_names)
+            + f"\n{text}"
+        )
+        assistant_text = "\n\n".join(answer_parts)
+
+        st.session_state.messages.append(
+            {
+                llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_USER,
+                llm_utility.KEY_NAME_CONTENT: user_visible,
+            }
+        )
+        st.session_state.messages.append(
+            {
+                llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_ASSISTANT,
+                llm_utility.KEY_NAME_CONTENT: assistant_text,
+            }
+        )
+        persist_current_conversation(
+            title_hint=f"{constants.HISTORY_FILE_PREFIX} {display_names[0]}",
+        )
+        clear_pending_attachments()
+        return
+
+    get_assistant_answer(user_prompt=text)
 
 
 def add_analysis_result_to_chat(result_text: str, source_name: str) -> None:
@@ -525,7 +747,7 @@ def add_analysis_result_to_chat(result_text: str, source_name: str) -> None:
 def render_file_analysis_section() -> None:
     """Render upload + analysis actions for image/pdf/text/audio."""
 
-    with st.expander(label=constants.FILES_HEADER, expanded=False):
+    with st.container():
         uploaded = st.file_uploader(
             label=constants.FILES_UPLOAD_LABEL,
             type=[
@@ -817,7 +1039,7 @@ def process_voice_audio(audio_path: Path) -> None:
 def render_voice_conversation_section() -> None:
     """Persian voice conversation: record, STT, model answer, TTS playback."""
 
-    with st.expander(label=constants.VOICE_HEADER, expanded=True):
+    with st.container():
         st.caption(body=constants.VOICE_HELP)
         st.caption(body=constants.VOICE_RAM_HINT)
 

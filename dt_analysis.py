@@ -88,6 +88,87 @@ def _ask_ollama(
     return answer
 
 
+FILE_TASK_SYSTEM_PROMPT: Final[str] = (
+    "تو یک دستیار هستی که روی محتوای فایل طبق درخواست کاربر کار می‌کند. "
+    "فقط همان کاری را انجام بده که کاربر خواسته. "
+    "به فارسی روان پاسخ بده مگر اینکه کاربر خلافش را بگوید. "
+    "از پیشنهادهای اضافه و کارهای اختیاری خودداری کن."
+)
+
+
+def apply_prompt_to_file(
+    file_path: Path,
+    file_name: str,
+    user_prompt: str,
+    model_name: str,
+    whisper_model: str = "auto",
+) -> tuple[str, bool]:
+    """
+    Apply the user's free-form Persian prompt to an attached file.
+
+    Returns:
+        result text, whether Ollama models were unloaded for Whisper
+    """
+
+    prompt = utility.fix_text(text=str(user_prompt or ""))
+    if not prompt:
+        raise RuntimeError("ابتدا بنویسید با این فایل چه کار کنم.")
+
+    kind = files.detect_file_kind(file_name=file_name)
+    if kind == "unknown":
+        raise RuntimeError("این نوع فایل پشتیبانی نمی‌شود.")
+
+    unloaded = False
+
+    if kind == "image":
+        _free_whisper_if_chat_needs_ram(model_name=model_name)
+        ok, message = prepare_model_for_use(model_name=model_name)
+        if not ok:
+            raise RuntimeError(message)
+        answer, _, _, _ = chat_with_image(
+            prompt=prompt,
+            image_path=str(file_path),
+            model_name=model_name,
+        )
+        if not answer:
+            raise RuntimeError("پاسخی از مدل برای تصویر دریافت نشد.")
+        return answer, unloaded
+
+    if kind == "audio":
+        text, _elapsed, unloaded, used_model = transcribe_audio(
+            audio_path=file_path,
+            model_name=whisper_model,
+        )
+        text = utility.fix_text(text=text)
+        if not text:
+            raise RuntimeError("متنی از صوت استخراج نشد.")
+        answer = _ask_ollama(
+            system_prompt=FILE_TASK_SYSTEM_PROMPT,
+            user_text=(
+                f"درخواست کاربر:\n{prompt}\n\n"
+                f"متن استخراج‌شده از صوت «{file_name}» "
+                f"(Whisper: {used_model}):\n{text}"
+            ),
+            model_name=model_name,
+        )
+        return answer, unloaded
+
+    # pdf / text
+    content = files.extract_text(file_path=file_path)
+    content = files.truncate_text(text=content, max_chars=12000)
+    if not content:
+        raise RuntimeError("متنی از فایل استخراج نشد.")
+    answer = _ask_ollama(
+        system_prompt=FILE_TASK_SYSTEM_PROMPT,
+        user_text=(
+            f"درخواست کاربر:\n{prompt}\n\n"
+            f"محتوای فایل «{file_name}»:\n{content}"
+        ),
+        model_name=model_name,
+    )
+    return answer, unloaded
+
+
 def analyze_image(image_path: Path, model_name: str) -> str:
     """Analyze image with vision-capable Ollama model."""
 

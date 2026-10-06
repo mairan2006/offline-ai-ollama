@@ -1,5 +1,5 @@
 """
-Offline AI Streamlit App - Phase F
+Offline AI Streamlit App - Phase G
 
 For Running:
 > streamlit run ./streamlit_app.py

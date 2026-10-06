@@ -31,6 +31,7 @@ def _connect() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database=str(DB_PATH))
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
@@ -167,10 +168,14 @@ def save_messages(
     conversation_id: int,
     messages: list[dict],
     model_name: Optional[str] = None,
-) -> None:
+    title_hint: Optional[str] = None,
+) -> str:
     """
     Replace all messages of a conversation with the given list.
-    Also update title from first user message when possible.
+    Also update title from hint or first user message when possible.
+
+    Returns:
+        final conversation title
     """
 
     init_db()
@@ -184,10 +189,11 @@ def save_messages(
             (conversation_id,),
         )
 
+        saved_count = 0
         for message in messages:
             role = str(message.get("role", "")).strip().lower()
             content = str(message.get("content", ""))
-            if not role:
+            if role not in {ROLE_SYSTEM, ROLE_USER, ROLE_ASSISTANT}:
                 continue
             cursor.execute(
                 """
@@ -196,8 +202,12 @@ def save_messages(
                 """,
                 (conversation_id, role, content, now),
             )
+            saved_count += 1
 
-        title = _build_title_from_messages(messages=messages)
+        title = _build_title_from_messages(
+            messages=messages,
+            title_hint=title_hint,
+        )
         if model_name:
             cursor.execute(
                 """
@@ -218,19 +228,42 @@ def save_messages(
             )
 
         connection.commit()
+        if saved_count == 0:
+            raise RuntimeError("هیچ پیامی برای ذخیره در تاریخچه باقی نماند.")
+        return title
     finally:
         connection.close()
 
 
-def _build_title_from_messages(messages: list[dict]) -> str:
+def _truncate_title(text: str, max_len: int = 40) -> str:
+    text = utility.fix_text(text=text)
+    if not text:
+        return "گفتگوی جدید"
+    if len(text) > max_len:
+        return text[:max_len] + "..."
+    return text
+
+
+def _build_title_from_messages(
+    messages: list[dict],
+    title_hint: Optional[str] = None,
+) -> str:
+    if title_hint:
+        return _truncate_title(text=title_hint)
+
     for message in messages:
-        if str(message.get("role", "")).lower() == ROLE_USER:
-            text = utility.fix_text(text=str(message.get("content", "")))
-            if not text:
-                break
-            if len(text) > 40:
-                return text[:40] + "..."
-            return text
+        if str(message.get("role", "")).lower() != ROLE_USER:
+            continue
+        text = utility.fix_text(text=str(message.get("content", "")))
+        if not text:
+            continue
+        if text.startswith("📎"):
+            return _truncate_title(text=text)
+        if text.startswith("نتیجه تحلیل فایل"):
+            return _truncate_title(text=text)
+        if text.startswith("🎤"):
+            return _truncate_title(text=text)
+        return _truncate_title(text=text)
     return "گفتگوی جدید"
 
 

@@ -73,6 +73,18 @@ def initial_session_state() -> None:
     if "history_notice" not in st.session_state:
         st.session_state.history_notice = ""
 
+    if "history_title_hint" not in st.session_state:
+        st.session_state.history_title_hint = ""
+
+    if "history_select_box" not in st.session_state:
+        st.session_state.history_select_box = -1
+
+    if "_history_sync_id" not in st.session_state:
+        st.session_state._history_sync_id = None
+
+    if "_history_select_pending" not in st.session_state:
+        st.session_state._history_select_pending = None
+
     if "file_analysis_result" not in st.session_state:
         st.session_state.file_analysis_result = ""
 
@@ -138,11 +150,42 @@ def refresh_model_options() -> list[tuple[str, str, bool]]:
     return options
 
 
+def _request_history_select(conversation_id: Optional[int]) -> None:
+    """
+    Queue dropdown selection for the next sidebar render.
+
+    Streamlit forbids writing widget keys after the widget exists; voice/chat
+    persist runs after the sidebar selectbox, so we only set a pending value.
+    """
+
+    st.session_state._history_select_pending = (
+        int(conversation_id) if conversation_id is not None else -1
+    )
+
+
+def _apply_history_select_pending() -> None:
+    """Apply queued dropdown selection before the selectbox is created."""
+
+    if "_history_select_pending" not in st.session_state:
+        st.session_state._history_select_pending = None
+
+    pending = st.session_state._history_select_pending
+    if pending is None:
+        return
+
+    st.session_state.history_select_box = int(pending)
+    st.session_state._history_select_pending = None
+    st.session_state._history_sync_id = st.session_state.conversation_id
+
+
 def start_new_conversation() -> None:
     """Start a fresh in-memory conversation (saved on first reply)."""
 
     st.session_state.messages = [constants.SYSTEM_MESSAGE.copy()]
     st.session_state.conversation_id = None
+    st.session_state.history_title_hint = ""
+    st.session_state._history_sync_id = None
+    _request_history_select(conversation_id=None)
     st.session_state.history_notice = constants.HISTORY_NEW
 
 
@@ -166,15 +209,33 @@ def ensure_conversation_exists() -> int:
     return conversation_id
 
 
-def persist_current_conversation() -> None:
-    """Save current messages into SQLite."""
+def persist_current_conversation(title_hint: str = "") -> int:
+    """Save current messages into SQLite and sync history dropdown."""
 
+    hint = (title_hint or st.session_state.history_title_hint or "").strip()
     conversation_id = ensure_conversation_exists()
-    history.save_messages(
-        conversation_id=conversation_id,
-        messages=st.session_state.messages,
-        model_name=st.session_state.model_name,
+    try:
+        title = history.save_messages(
+            conversation_id=conversation_id,
+            messages=st.session_state.messages,
+            model_name=st.session_state.model_name,
+            title_hint=hint or None,
+        )
+    except Exception as exception:
+        st.session_state.history_notice = (
+            f"{constants.HISTORY_SAVE_FAILED} ({exception})"
+        )
+        raise
+
+    if hint:
+        st.session_state.history_title_hint = hint
+
+    # Do not write history_select_box here — widget may already exist this run.
+    _request_history_select(conversation_id=conversation_id)
+    st.session_state.history_notice = (
+        f"{constants.HISTORY_SAVED} #{conversation_id} | {title}"
     )
+    return conversation_id
 
 
 def load_conversation(conversation_id: int) -> None:
@@ -198,7 +259,17 @@ def load_conversation(conversation_id: int) -> None:
         st.session_state.model_name,
     )
     st.session_state.model_ready = False
-    st.session_state.history_notice = constants.HISTORY_LOADED
+    st.session_state.history_title_hint = str(conversation.get("title", "") or "")
+    # Widget may already exist (dropdown on_change path); queue for next run.
+    st.session_state._history_sync_id = conversation_id
+    _request_history_select(conversation_id=conversation_id)
+    st.session_state.voice_last_transcript = ""
+    st.session_state.voice_reply_bytes = b""
+    st.session_state.history_notice = (
+        f"{constants.HISTORY_LOADED} #{conversation_id} | "
+        f"{conversation.get('title', '')} | "
+        f"{len([m for m in messages if m.get('role') != llm_utility.ROLE_SYSTEM])} پیام"
+    )
 
 
 def prepare_selected_model(model_name: str) -> bool:
@@ -226,41 +297,58 @@ def render_history_section() -> None:
 
     st.markdown(body=f"**{constants.HISTORY_HEADER}**")
 
+    # Must run before selectbox — never write history_select_box after it exists.
+    _apply_history_select_pending()
+
     conversations = history.list_conversations(limit=50)
     if not conversations:
         st.caption(body=constants.HISTORY_EMPTY)
+        st.session_state.history_select_box = -1
+        st.session_state._history_sync_id = st.session_state.conversation_id
     else:
-        labels = [constants.HISTORY_NONE_OPTION]
-        ids: list[Optional[int]] = [None]
+        ids: list[int] = [-1]
+        labels: dict[int, str] = {-1: constants.HISTORY_NONE_OPTION}
         for item in conversations:
-            label = (
-                f"#{item['id']} | {item['title']} | {item['model_name']} | "
-                f"{item['updated_at']}"
+            conversation_id = int(item["id"])
+            ids.append(conversation_id)
+            labels[conversation_id] = (
+                f"#{conversation_id} | {item['title']} | {item['model_name']}"
             )
-            labels.append(label)
-            ids.append(int(item["id"]))
 
-        # Keep dropdown synced with currently loaded conversation.
-        current_index = 0
-        if st.session_state.conversation_id is not None:
-            for index, conversation_id in enumerate(ids):
-                if conversation_id == st.session_state.conversation_id:
-                    current_index = index
-                    break
+        # Keep dropdown synced when app logic changes the active conversation.
+        if st.session_state._history_sync_id != st.session_state.conversation_id:
+            st.session_state.history_select_box = (
+                int(st.session_state.conversation_id)
+                if st.session_state.conversation_id is not None
+                else -1
+            )
+            st.session_state._history_sync_id = st.session_state.conversation_id
 
-        selected_label = st.selectbox(
+        if st.session_state.history_select_box not in ids:
+            st.session_state.history_select_box = (
+                int(st.session_state.conversation_id)
+                if st.session_state.conversation_id in ids
+                else -1
+            )
+
+        selected_id = st.selectbox(
             label=constants.HISTORY_SELECT_LABEL,
-            options=labels,
-            index=current_index,
+            options=ids,
+            format_func=lambda conversation_id: labels.get(
+                conversation_id,
+                constants.HISTORY_NONE_OPTION,
+            ),
+            key="history_select_box",
         )
-        selected_id = ids[labels.index(selected_label)]
+        if selected_id == -1:
+            selected_id = None
 
         # Load immediately on dropdown change (no separate load button).
         if (
             selected_id is not None
             and selected_id != st.session_state.conversation_id
         ):
-            load_conversation(conversation_id=selected_id)
+            load_conversation(conversation_id=int(selected_id))
             st.rerun()
 
         if st.button(label=constants.HISTORY_DELETE, use_container_width=True):
@@ -271,6 +359,11 @@ def render_history_section() -> None:
                 history.delete_conversation(conversation_id=int(target_id))
                 if st.session_state.conversation_id == target_id:
                     start_new_conversation()
+                else:
+                    st.session_state._history_sync_id = None
+                    _request_history_select(
+                        conversation_id=st.session_state.conversation_id,
+                    )
                 st.session_state.history_notice = constants.HISTORY_DELETED
                 st.rerun()
 
@@ -407,7 +500,11 @@ def render_sidebar() -> None:
 def add_analysis_result_to_chat(result_text: str, source_name: str) -> None:
     """Append analysis result into current chat and persist."""
 
-    user_note = f"نتیجه تحلیل فایل «{source_name}» را به گفتگو اضافه کردم."
+    safe_name = str(source_name or "فایل").strip() or "فایل"
+    user_note = (
+        f"{constants.HISTORY_FILE_PREFIX} نتیجه تحلیل فایل «{safe_name}» "
+        "را به گفتگو اضافه کردم."
+    )
     st.session_state.messages.append(
         {
             llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_USER,
@@ -420,7 +517,9 @@ def add_analysis_result_to_chat(result_text: str, source_name: str) -> None:
             llm_utility.KEY_NAME_CONTENT: result_text,
         }
     )
-    persist_current_conversation()
+    persist_current_conversation(
+        title_hint=f"{constants.HISTORY_FILE_PREFIX} {safe_name}",
+    )
 
 
 def render_file_analysis_section() -> None:
@@ -631,9 +730,15 @@ def process_voice_audio(audio_path: Path) -> None:
         st.session_state.voice_notice = constants.VOICE_EMPTY_TRANSCRIPT
         return
 
+    voice_user_text = f"{constants.HISTORY_VOICE_PREFIX} {text}"
+    voice_title = f"{constants.HISTORY_VOICE_PREFIX} {text}"
+
     try:
         with st.spinner(text="در حال فکر کردن..."):
-            answer, _elapsed_text = get_assistant_answer(user_prompt=text)
+            answer, _elapsed_text = get_assistant_answer(
+                user_prompt=voice_user_text,
+                title_hint=voice_title,
+            )
     except Exception as exception:
         st.session_state.voice_notice = (
             "پاسخ مدل ساخته نشد. "
@@ -644,6 +749,9 @@ def process_voice_audio(audio_path: Path) -> None:
     if answer == constants.ERROR_NO_ANSWER:
         st.session_state.voice_notice = constants.ERROR_NO_ANSWER
         return
+
+    # Force a clean rerun so sidebar history dropdown syncs to the saved chat.
+    should_rerun = True
 
     engine = tts_router.normalize_engine(engine=st.session_state.voice_tts_engine)
     if engine == tts_router.ENGINE_OFFLINE:
@@ -660,8 +768,13 @@ def process_voice_audio(audio_path: Path) -> None:
                 engine=engine,
                 voice=voice,
             )
+        st.session_state.voice_reply_bytes = Path(audio_file).read_bytes()
+        st.session_state.voice_reply_mime = mime
+        st.session_state.voice_autoplay = True
+        st.session_state.voice_notice = constants.VOICE_TRUNCATED if truncated else ""
     except Exception as exception:
         # Practical fallback: if offline cannot speak Persian, try Edge once.
+        handled = False
         if engine == tts_router.ENGINE_OFFLINE:
             try:
                 with st.spinner(text=constants.VOICE_TTS_SPINNER_EDGE):
@@ -683,24 +796,22 @@ def process_voice_audio(audio_path: Path) -> None:
                 if truncated:
                     notice = f"{constants.VOICE_TRUNCATED} | {notice}"
                 st.session_state.voice_notice = notice
-                return
+                handled = True
             except Exception as edge_exception:
                 st.session_state.voice_notice = (
-                    "پاسخ متنی آماده شد، ولی ساخت صدا ناموفق بود: "
+                    "پاسخ متنی آماده شد و در تاریخچه ذخیره شد، ولی ساخت صدا ناموفق بود: "
                     f"آفلاین: {exception} | Edge: {edge_exception}"
                 )
-                return
+                handled = True
 
-        st.session_state.voice_notice = (
-            "پاسخ متنی آماده شد، ولی ساخت صدا ناموفق بود: "
-            f"{exception}"
-        )
-        return
+        if not handled:
+            st.session_state.voice_notice = (
+                "پاسخ متنی آماده شد و در تاریخچه ذخیره شد، ولی ساخت صدا ناموفق بود: "
+                f"{exception}"
+            )
 
-    st.session_state.voice_reply_bytes = Path(audio_file).read_bytes()
-    st.session_state.voice_reply_mime = mime
-    st.session_state.voice_autoplay = True
-    st.session_state.voice_notice = constants.VOICE_TRUNCATED if truncated else ""
+    if should_rerun:
+        st.rerun()
 
 
 def render_voice_conversation_section() -> None:
@@ -874,9 +985,14 @@ def render_voice_conversation_section() -> None:
         render_voice_player()
 
 
-def get_assistant_answer(user_prompt: str) -> tuple[str, str]:
+def get_assistant_answer(
+    user_prompt: str,
+    *,
+    title_hint: str = "",
+    persist: bool = True,
+) -> tuple[str, str]:
     """
-    Get assistant answer from Ollama and persist history.
+    Get assistant answer from Ollama and optionally persist history.
 
     Returns:
         answer text, elapsed time text
@@ -919,7 +1035,8 @@ def get_assistant_answer(user_prompt: str) -> tuple[str, str]:
     }
     st.session_state.messages.append(assistant_message)
 
-    persist_current_conversation()
+    if persist:
+        persist_current_conversation(title_hint=title_hint)
 
     elapsed_text: str = (
         f"{constants.ELAPSED_TIME_LABEL}: {format_seconds(seconds=elapsed_time)} | "

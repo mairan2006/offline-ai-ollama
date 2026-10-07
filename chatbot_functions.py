@@ -2,10 +2,12 @@
 Chatbot Functions
 """
 
+import base64
 from pathlib import Path
 from typing import Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 import chatbot_constants as constants
 import dt_analysis as analysis
@@ -346,6 +348,36 @@ def prepare_selected_model(model_name: str) -> bool:
     return ok
 
 
+def _history_export_filename(title: str, conversation_id: int) -> str:
+    """Build a safe download filename for one conversation export."""
+
+    safe_stem = "".join(
+        ch if ch.isalnum() or ch in ("-", "_") else "_"
+        for ch in title
+    ).strip("_") or f"chat_{conversation_id}"
+    return f"{safe_stem}_{conversation_id}.json"
+
+
+def _trigger_json_download(payload: str, file_name: str) -> None:
+    """Start a browser download for a JSON string (sidebar-safe)."""
+
+    b64 = base64.b64encode(payload.encode("utf-8")).decode("ascii")
+    safe_name = file_name.replace('"', "").replace("'", "")
+    components.html(
+        f"""
+        <html><body>
+        <a id="oa-export-link"
+           href="data:application/json;charset=utf-8;base64,{b64}"
+           download="{safe_name}">download</a>
+        <script>
+          document.getElementById("oa-export-link").click();
+        </script>
+        </body></html>
+        """,
+        height=0,
+    )
+
+
 def render_history_section() -> None:
     """Render conversation history as dense sidebar buttons (no new-tab links)."""
 
@@ -359,7 +391,10 @@ def render_history_section() -> None:
             if len(title) > 32:
                 title = title[:32] + "…"
             is_active = st.session_state.conversation_id == conversation_id
-            col_open, col_del = st.columns([0.88, 0.12], gap="small")
+            col_open, col_export, col_del = st.columns(
+                [0.70, 0.15, 0.15],
+                gap="small",
+            )
             with col_open:
                 label = f"• {title}" if is_active else title
                 if st.button(
@@ -370,6 +405,24 @@ def render_history_section() -> None:
                     if not is_active:
                         load_conversation(conversation_id=conversation_id)
                     st.rerun()
+            with col_export:
+                if st.button(
+                    label=constants.HISTORY_EXPORT_ICON,
+                    key=f"hist_export_{conversation_id}",
+                    help=constants.HISTORY_EXPORT_HELP,
+                    use_container_width=True,
+                ):
+                    export_json = history.export_conversation_json(
+                        conversation_id=conversation_id,
+                    )
+                    _trigger_json_download(
+                        payload=export_json,
+                        file_name=_history_export_filename(
+                            title=title,
+                            conversation_id=conversation_id,
+                        ),
+                    )
+                    st.session_state.history_notice = "خروجی JSON آماده شد."
             with col_del:
                 if st.button(
                     label=constants.HISTORY_DELETE_ICON,

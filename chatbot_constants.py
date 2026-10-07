@@ -191,19 +191,23 @@ STREAMLIT_STYLE: Final[str] = """
         min-height: 2rem !important;
         margin: 0.2rem 0 0.4rem 0 !important;
     }
-    /* Trash: hidden until the history row is hovered (match by widget key) */
-    [data-testid="stSidebar"] [class*="st-key-hist_del_"] {
+    /* Export / trash: hidden until the history row is hovered */
+    [data-testid="stSidebar"] [class*="st-key-hist_del_"],
+    [data-testid="stSidebar"] [class*="st-key-hist_export_"] {
         visibility: hidden !important;
         opacity: 0 !important;
         pointer-events: none !important;
     }
     [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:hover
-    [class*="st-key-hist_del_"] {
+    [class*="st-key-hist_del_"],
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:hover
+    [class*="st-key-hist_export_"] {
         visibility: visible !important;
         opacity: 1 !important;
         pointer-events: auto !important;
     }
-    [data-testid="stSidebar"] [class*="st-key-hist_del_"] .stButton > button {
+    [data-testid="stSidebar"] [class*="st-key-hist_del_"] .stButton > button,
+    [data-testid="stSidebar"] [class*="st-key-hist_export_"] .stButton > button {
         justify-content: center !important;
         text-align: center !important;
         font-size: 0.65rem !important;
@@ -215,6 +219,10 @@ STREAMLIT_STYLE: Final[str] = """
     [data-testid="stSidebar"] [class*="st-key-hist_del_"] .stButton > button:hover {
         color: #ff6b6b !important;
         background: rgba(255,80,80,0.12) !important;
+    }
+    [data-testid="stSidebar"] [class*="st-key-hist_export_"] .stButton > button:hover {
+        color: #7ec8ff !important;
+        background: rgba(80,160,255,0.12) !important;
     }
 
     [data-testid="stSidebar"] [data-testid="stSidebarContent"],
@@ -644,6 +652,8 @@ REFRESH_MODELS: Final[str] = "بروزرسانی مدل‌ها"
 HISTORY_HEADER: Final[str] = "گفتگوها"
 HISTORY_SELECT_LABEL: Final[str] = "گفتگوی قبلی"
 HISTORY_DELETE_ICON: Final[str] = "🗑"
+HISTORY_EXPORT_ICON: Final[str] = "💾"
+HISTORY_EXPORT_HELP: Final[str] = "خروجی JSON گفتگو"
 COMPOSER_SEND: Final[str] = "↑"
 COMPOSER_MIC: Final[str] = "🎤"
 ATTACH_PREVIEW_LABEL: Final[str] = "پیوست‌شده"

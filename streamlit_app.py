@@ -38,7 +38,6 @@ def main() -> None:
             body=st.session_state.model_status_message
             or "مدل برای استفاده آماده نیست."
         )
-        return
 
     has_turns = any(
         message.get("role") != "system"
@@ -51,20 +50,34 @@ def main() -> None:
     else:
         st.markdown(body=constants.EMPTY_CHAT_HTML, unsafe_allow_html=True)
 
-    # Model pill above native composer (+ / mic / send arrow).
     functions.render_composer()
 
+    # submit_mode="stop": send arrow becomes Stop while the script runs.
     chat_value = st.chat_input(
         placeholder=constants.USER_PROMPT_PLACEHOLDER,
         accept_file="multiple",
         file_type=list(constants.CHAT_FILE_TYPES),
-        accept_audio=True,
         max_upload_size=50,
+        key="main_chat_input",
+        submit_mode="stop",
     )
+
     if chat_value is None:
         return
 
-    functions.handle_chat_input_value(chat_value=chat_value)
+    if not st.session_state.model_ready:
+        ok = functions.prepare_selected_model(model_name=st.session_state.model_name)
+        if not ok:
+            st.error(
+                body=st.session_state.model_status_message
+                or "مدل برای استفاده آماده نیست."
+            )
+            return
+
+    try:
+        functions.handle_chat_input_value(chat_value=chat_value)
+    except Exception as exception:
+        st.error(body=str(exception).strip() or constants.ERROR_OLLAMA_CONNECTION)
 
 
 if __name__ == "__main__":

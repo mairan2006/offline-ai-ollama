@@ -317,70 +317,49 @@ def prepare_selected_model(model_name: str) -> bool:
 
 
 def render_history_section() -> None:
-    """Render conversation history as a dense Cursor-like HTML list."""
+    """Render conversation history as dense sidebar buttons (no new-tab links)."""
 
     st.markdown(
         body=f'<div class="oa-side-section">{constants.HISTORY_HEADER}</div>',
         unsafe_allow_html=True,
     )
 
-    # Handle click from HTML history links / delete forms via query params.
-    params = st.query_params
-    open_id = params.get("open")
-    delete_id = params.get("del")
-    if open_id is not None:
-        try:
-            target = int(str(open_id))
-            if st.session_state.conversation_id != target:
-                load_conversation(conversation_id=target)
-            st.query_params.clear()
-            st.rerun()
-        except Exception:
-            st.query_params.clear()
-    if delete_id is not None:
-        try:
-            target = int(str(delete_id))
-            history.delete_conversation(conversation_id=target)
-            if st.session_state.conversation_id == target:
-                start_new_conversation()
-            st.session_state.history_notice = constants.HISTORY_DELETED
-            st.query_params.clear()
-            st.rerun()
-        except Exception:
-            st.query_params.clear()
-
     conversations = history.list_conversations(limit=50)
     if not conversations:
         st.caption(body=constants.HISTORY_EMPTY)
     else:
-        rows: list[str] = ['<div class="oa-hist-list" dir="rtl">']
         for item in conversations:
             conversation_id = int(item["id"])
             title = str(item.get("title") or "گفتگو").strip() or "گفتگو"
             if len(title) > 32:
                 title = title[:32] + "…"
-            # Escape minimal HTML
-            safe_title = (
-                title.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace('"', "&quot;")
-            )
-            active = (
-                " oa-hist-active"
-                if st.session_state.conversation_id == conversation_id
-                else ""
-            )
-            rows.append(
-                '<div class="oa-hist-row">'
-                f'<a class="oa-hist-item{active}" href="?open={conversation_id}">'
-                f"{safe_title}</a>"
-                f'<a class="oa-hist-del" href="?del={conversation_id}" '
-                f'title="حذف">🗑</a>'
-                "</div>"
-            )
-        rows.append("</div>")
-        st.markdown(body="".join(rows), unsafe_allow_html=True)
+            is_active = st.session_state.conversation_id == conversation_id
+            col_open, col_del = st.columns([0.88, 0.12], gap="small")
+            with col_open:
+                label = f"• {title}" if is_active else title
+                if st.button(
+                    label=label,
+                    key=f"hist_open_{conversation_id}",
+                    use_container_width=True,
+                ):
+                    if not is_active:
+                        load_conversation(conversation_id=conversation_id)
+                    st.rerun()
+            with col_del:
+                st.markdown(
+                    body='<div class="oa-del-wrap"></div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    label=constants.HISTORY_DELETE_ICON,
+                    key=f"hist_del_{conversation_id}",
+                    use_container_width=True,
+                ):
+                    history.delete_conversation(conversation_id=conversation_id)
+                    if st.session_state.conversation_id == conversation_id:
+                        start_new_conversation()
+                    st.session_state.history_notice = constants.HISTORY_DELETED
+                    st.rerun()
 
     if conversations and st.button(
         label=constants.HISTORY_DELETE_ALL,
@@ -466,15 +445,18 @@ def render_attachment_preview() -> None:
     for item in items:
         name = str(item.get("name", "فایل"))
         kind = str(item.get("kind", ""))
+        safe_name = (
+            str(name)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
         chips_html.append(
-            f'<span class="oa-chip">{name} <small>{kind}</small></span>'
+            f'<span class="oa-chip">{safe_name} <small>{kind}</small></span>'
         )
     chips_html.append("</div>")
     st.markdown(body="".join(chips_html), unsafe_allow_html=True)
-    st.markdown(
-        body=f'<p class="oa-attach-hint" dir="rtl">{constants.ATTACH_WAITING}</p>',
-        unsafe_allow_html=True,
-    )
     if st.button(label=constants.ATTACH_REMOVE, key="clear_pending_attachments"):
         clear_pending_attachments()
         st.rerun()
@@ -542,7 +524,47 @@ def render_sidebar() -> None:
                 ),
                 key="voice_tts_engine",
             )
-            st.caption(body="برای صحبت از آیکون میکروفون داخل باکس پیام استفاده کنید.")
+            st.caption(body="مکالمه صوتی:")
+            browser_audio = st.audio_input(label=constants.VOICE_BROWSER_LABEL)
+            if browser_audio is not None:
+                audio_bytes = browser_audio.getvalue()
+                audio_token = (
+                    f"{getattr(browser_audio, 'name', 'browser.wav')}:"
+                    f"{len(audio_bytes)}"
+                )
+                if st.button(
+                    label=constants.VOICE_BROWSER_SEND,
+                    key="sidebar_voice_send",
+                ):
+                    if st.session_state.voice_sent_token == audio_token:
+                        st.info(body=constants.VOICE_BROWSER_ALREADY)
+                    else:
+                        try:
+                            browser_name = str(
+                                getattr(browser_audio, "name", "") or "browser.wav"
+                            )
+                            if Path(browser_name).suffix.lower() not in {
+                                ".wav",
+                                ".mp3",
+                                ".m4a",
+                                ".ogg",
+                                ".webm",
+                            }:
+                                browser_name = "browser.wav"
+                            saved_path = recorder.save_audio_bytes(
+                                file_name=browser_name,
+                                file_bytes=audio_bytes,
+                            )
+                            process_voice_audio(audio_path=saved_path)
+                            st.session_state.voice_sent_token = audio_token
+                            st.rerun()
+                        except Exception as exception:
+                            st.error(
+                                body=(
+                                    "ارسال صدای مرورگر ناموفق بود. "
+                                    f"({exception})"
+                                )
+                            )
 
         st.markdown(body=constants.ABOUT, unsafe_allow_html=True)
 
@@ -559,44 +581,45 @@ def parse_chat_input(chat_value) -> tuple[str, list, Optional[object]]:
     text = str(getattr(chat_value, "text", "") or "").strip()
     uploaded = list(getattr(chat_value, "files", None) or [])
     audio = getattr(chat_value, "audio", None)
+
+    # Ignore empty audio placeholders so text+file submits are not swallowed.
+    if audio is not None:
+        try:
+            audio_size = len(audio.getvalue() or b"")
+        except Exception:
+            audio_size = 0
+        if audio_size <= 0:
+            audio = None
+
     return text, uploaded, audio
 
 
 def handle_chat_input_value(chat_value) -> None:
     """
-    Process native chat_input submission.
+    Process native chat_input submission with immediate UI feedback.
 
-    - file without text: preview chips only (same composer for the next prompt)
-    - audio: run voice pipeline
-    - text (+ optional files/pending): answer / apply to file
+    Shows the user prompt right away, then a thinking status (Stop via
+    chat_input submit_mode) while the model prepares the answer.
     """
 
     text, uploaded_files, audio = parse_chat_input(chat_value)
 
     if audio is not None:
-        try:
-            audio_bytes = audio.getvalue()
-            audio_name = str(getattr(audio, "name", "") or "browser.wav")
-            if Path(audio_name).suffix.lower() not in {
-                ".wav",
-                ".mp3",
-                ".m4a",
-                ".ogg",
-                ".webm",
-            }:
-                audio_name = "browser.wav"
-            saved_path = recorder.save_audio_bytes(
-                file_name=audio_name,
-                file_bytes=audio_bytes,
-            )
-            process_voice_audio(audio_path=saved_path)
-        except Exception as exception:
-            st.error(
-                body=(
-                    "پردازش صدا ناموفق بود. "
-                    f"({exception})"
-                )
-            )
+        audio_bytes = audio.getvalue()
+        audio_name = str(getattr(audio, "name", "") or "browser.wav")
+        if Path(audio_name).suffix.lower() not in {
+            ".wav",
+            ".mp3",
+            ".m4a",
+            ".ogg",
+            ".webm",
+        }:
+            audio_name = "browser.wav"
+        saved_path = recorder.save_audio_bytes(
+            file_name=audio_name,
+            file_bytes=audio_bytes,
+        )
+        process_voice_audio(audio_path=saved_path)
         return
 
     if uploaded_files and not text:
@@ -609,14 +632,10 @@ def handle_chat_input_value(chat_value) -> None:
     if not text:
         return
 
-    try:
-        handle_chat_submission(
-            text=text,
-            uploaded_files=uploaded_files or None,
-        )
-        st.rerun()
-    except Exception as exception:
-        st.error(body=str(exception).strip() or constants.ERROR_OLLAMA_CONNECTION)
+    run_chat_turn_with_ui(
+        text=text,
+        uploaded_files=uploaded_files or None,
+    )
 
 
 def clear_pending_attachments() -> None:
@@ -645,13 +664,60 @@ def store_uploaded_files(uploaded_files: list) -> list[dict]:
     return stored
 
 
-def handle_chat_submission(text: str, uploaded_files: Optional[list] = None) -> None:
+def _build_file_prompt_turn(
+    text: str,
+    pending: list[dict],
+) -> tuple[str, str, str]:
     """
-    Handle chat input text and optional + file attachments.
+    Apply user prompt to pending files.
 
-    - File without text: store and preview only (no model, no suggestions).
-    - Text with attachment(s): apply the user prompt to each file.
-    - Text only: normal chat.
+    Returns user_visible, assistant_text, title_hint.
+    """
+
+    unsupported = [item for item in pending if item.get("kind") == "unknown"]
+    if unsupported:
+        names = "، ".join(str(item.get("name", "")) for item in unsupported)
+        raise RuntimeError(f"{constants.ATTACH_UNSUPPORTED} ({names})")
+
+    answer_parts: list[str] = []
+    display_names: list[str] = []
+    for item in pending:
+        name = str(item.get("name", "فایل"))
+        path = Path(str(item.get("path", "")))
+        display_names.append(name)
+        result, unloaded = analysis.apply_prompt_to_file(
+            file_path=path,
+            file_name=name,
+            user_prompt=text,
+            model_name=st.session_state.model_name,
+            whisper_model=st.session_state.voice_whisper_model,
+        )
+        if unloaded:
+            st.session_state.model_ready = False
+        if len(pending) > 1:
+            answer_parts.append(f"### {name}\n{result}")
+        else:
+            answer_parts.append(result)
+
+    user_visible = (
+        f"{constants.HISTORY_FILE_PREFIX} "
+        + "، ".join(display_names)
+        + f"\n{text}"
+    )
+    assistant_text = "\n\n".join(answer_parts)
+    title_hint = f"{constants.HISTORY_FILE_PREFIX} {display_names[0]}"
+    return user_visible, assistant_text, title_hint
+
+
+def run_chat_turn_with_ui(
+    text: str,
+    uploaded_files: Optional[list] = None,
+) -> None:
+    """
+    Show user prompt immediately, think with status, then show the answer.
+
+    Works with st.chat_input(submit_mode=\"stop\") so the send arrow becomes Stop
+    while this function runs.
     """
 
     text = (text or "").strip()
@@ -660,63 +726,101 @@ def handle_chat_submission(text: str, uploaded_files: Optional[list] = None) -> 
         st.session_state.pending_attachments = store_uploaded_files(new_files)
 
     pending = list(st.session_state.pending_attachments or [])
-
     if not text:
-        # Attach-only: preview is enough; do not invent tasks.
         return
 
-    if pending:
-        unsupported = [item for item in pending if item.get("kind") == "unknown"]
-        if unsupported:
-            names = "، ".join(str(item.get("name", "")) for item in unsupported)
-            raise RuntimeError(f"{constants.ATTACH_UNSUPPORTED} ({names})")
-
-        answer_parts: list[str] = []
-        display_names: list[str] = []
-        for item in pending:
-            name = str(item.get("name", "فایل"))
-            path = Path(str(item.get("path", "")))
-            display_names.append(name)
-            result, unloaded = analysis.apply_prompt_to_file(
-                file_path=path,
-                file_name=name,
-                user_prompt=text,
-                model_name=st.session_state.model_name,
-                whisper_model=st.session_state.voice_whisper_model,
-            )
-            if unloaded:
-                st.session_state.model_ready = False
-            if len(pending) > 1:
-                answer_parts.append(f"### {name}\n{result}")
-            else:
-                answer_parts.append(result)
-
+    use_files = bool(pending)
+    if use_files:
         user_visible = (
             f"{constants.HISTORY_FILE_PREFIX} "
-            + "، ".join(display_names)
+            + "، ".join(str(item.get("name", "فایل")) for item in pending)
             + f"\n{text}"
         )
-        assistant_text = "\n\n".join(answer_parts)
-
-        st.session_state.messages.append(
-            {
-                llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_USER,
-                llm_utility.KEY_NAME_CONTENT: user_visible,
-            }
+        title_hint = (
+            f"{constants.HISTORY_FILE_PREFIX} "
+            f"{pending[0].get('name', 'فایل')}"
         )
+    else:
+        user_visible = text
+        title_hint = ""
+
+    st.session_state.messages.append(
+        {
+            llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_USER,
+            llm_utility.KEY_NAME_CONTENT: user_visible,
+        }
+    )
+
+    # Immediate echo (previous messages were already rendered above).
+    with st.chat_message(name="user"):
+        st.markdown(body=user_visible)
+
+    assistant_text = ""
+    with st.chat_message(name="assistant"):
+        with st.status(
+            label=constants.THINKING_STATUS,
+            expanded=True,
+        ) as status:
+            st.write(constants.THINKING_STATUS_HINT)
+            try:
+                if use_files:
+                    _user_vis, assistant_text, title_hint = _build_file_prompt_turn(
+                        text=text,
+                        pending=pending,
+                    )
+                    clear_pending_attachments()
+                else:
+                    assistant_text = generate_assistant_reply(
+                        title_hint=title_hint,
+                        persist=False,
+                    )
+                status.update(
+                    label=constants.THINKING_STATUS_DONE,
+                    state="complete",
+                    expanded=False,
+                )
+            except Exception:
+                # Roll back the optimistic user turn on hard failure.
+                if (
+                    st.session_state.messages
+                    and st.session_state.messages[-1].get(llm_utility.KEY_NAME_ROLE)
+                    == llm_utility.ROLE_USER
+                ):
+                    st.session_state.messages.pop()
+                status.update(label="خطا در آماده‌سازی پاسخ", state="error")
+                raise
+
+        if assistant_text:
+            st.markdown(body=assistant_text)
+
+    if not assistant_text:
+        if (
+            st.session_state.messages
+            and st.session_state.messages[-1].get(llm_utility.KEY_NAME_ROLE)
+            == llm_utility.ROLE_USER
+        ):
+            st.session_state.messages.pop()
+        st.warning(body=constants.ERROR_NO_ANSWER)
+        return
+
+    if use_files:
         st.session_state.messages.append(
             {
                 llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_ASSISTANT,
                 llm_utility.KEY_NAME_CONTENT: assistant_text,
             }
         )
-        persist_current_conversation(
-            title_hint=f"{constants.HISTORY_FILE_PREFIX} {display_names[0]}",
-        )
-        clear_pending_attachments()
-        return
+    # Normal chat already appended assistant inside generate_assistant_reply.
 
-    get_assistant_answer(user_prompt=text)
+    persist_current_conversation(title_hint=title_hint)
+    # Refresh so sidebar history and the main message list stay in sync.
+    st.rerun()
+
+
+def handle_chat_submission(text: str, uploaded_files: Optional[list] = None) -> None:
+    """Backward-compatible wrapper around the UI chat turn."""
+
+    run_chat_turn_with_ui(text=text, uploaded_files=uploaded_files)
 
 
 def add_analysis_result_to_chat(result_text: str, source_name: str) -> None:
@@ -1207,6 +1311,54 @@ def render_voice_conversation_section() -> None:
         render_voice_player()
 
 
+def generate_assistant_reply(
+    *,
+    title_hint: str = "",
+    persist: bool = True,
+) -> str:
+    """
+    Generate an assistant reply for the current messages.
+
+    Assumes the latest user turn is already appended to session messages.
+    Returns the assistant text (empty string when the model returns nothing).
+    """
+
+    if not ensure_ollama_ready():
+        raise RuntimeError(st.session_state.ollama_status_message)
+
+    _free_whisper_if_chat_needs_ram()
+
+    if not st.session_state.model_ready:
+        ok = prepare_selected_model(model_name=st.session_state.model_name)
+        if not ok:
+            raise RuntimeError(st.session_state.model_status_message)
+
+    try:
+        assistant_answer, _elapsed_time, _prompt_tokens, _completion_tokens = chat(
+            messages=st.session_state.messages,
+            model_name=st.session_state.model_name,
+        )
+    except Exception:
+        st.session_state.ollama_ready = False
+        st.session_state.model_ready = False
+        raise
+
+    if not assistant_answer:
+        return ""
+
+    st.session_state.messages.append(
+        {
+            llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_ASSISTANT,
+            llm_utility.KEY_NAME_CONTENT: assistant_answer,
+        }
+    )
+
+    if persist:
+        persist_current_conversation(title_hint=title_hint)
+
+    return assistant_answer
+
+
 def get_assistant_answer(
     user_prompt: str,
     *,
@@ -1223,13 +1375,6 @@ def get_assistant_answer(
     if not ensure_ollama_ready():
         raise RuntimeError(st.session_state.ollama_status_message)
 
-    _free_whisper_if_chat_needs_ram()
-
-    if not st.session_state.model_ready:
-        ok = prepare_selected_model(model_name=st.session_state.model_name)
-        if not ok:
-            raise RuntimeError(st.session_state.model_status_message)
-
     user_message: dict = {
         llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_USER,
         llm_utility.KEY_NAME_CONTENT: user_prompt,
@@ -1237,32 +1382,26 @@ def get_assistant_answer(
     st.session_state.messages.append(user_message)
 
     try:
-        assistant_answer, elapsed_time, prompt_tokens, completion_tokens = chat(
-            messages=st.session_state.messages,
-            model_name=st.session_state.model_name,
+        assistant_answer = generate_assistant_reply(
+            title_hint=title_hint,
+            persist=persist,
         )
     except Exception:
-        st.session_state.messages.pop()
-        st.session_state.ollama_ready = False
-        st.session_state.model_ready = False
+        if (
+            st.session_state.messages
+            and st.session_state.messages[-1].get(llm_utility.KEY_NAME_ROLE)
+            == llm_utility.ROLE_USER
+        ):
+            st.session_state.messages.pop()
         raise
 
     if not assistant_answer:
-        st.session_state.messages.pop()
+        if (
+            st.session_state.messages
+            and st.session_state.messages[-1].get(llm_utility.KEY_NAME_ROLE)
+            == llm_utility.ROLE_USER
+        ):
+            st.session_state.messages.pop()
         return constants.ERROR_NO_ANSWER, ""
 
-    assistant_message: dict = {
-        llm_utility.KEY_NAME_ROLE: llm_utility.ROLE_ASSISTANT,
-        llm_utility.KEY_NAME_CONTENT: assistant_answer,
-    }
-    st.session_state.messages.append(assistant_message)
-
-    if persist:
-        persist_current_conversation(title_hint=title_hint)
-
-    elapsed_text: str = (
-        f"{constants.ELAPSED_TIME_LABEL}: {format_seconds(seconds=elapsed_time)} | "
-        f"{constants.PROMPT_TOKENS_LABEL}: {prompt_tokens} | "
-        f"{constants.COMPLETION_TOKENS_LABEL}: {completion_tokens}"
-    )
-    return assistant_answer, elapsed_text
+    return assistant_answer, ""

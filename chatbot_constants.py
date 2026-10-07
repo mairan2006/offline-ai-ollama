@@ -60,7 +60,7 @@ STREAMLIT_STYLE: Final[str] = """
     .block-container {
         padding-top: 3.5rem !important;
         padding-bottom: 2.5rem !important;
-        max-width: 720px !important;
+        max-width: 960px !important;
     }
 
     .block-container, section, input, textarea,
@@ -149,11 +149,99 @@ STREAMLIT_STYLE: Final[str] = """
     }
     .oa-side-section {
         direction: rtl; color: #555; font-size: 0.58rem; font-weight: 600;
-        letter-spacing: 0.08em; margin: 0.25rem 0 0.05rem 0;
+        letter-spacing: 0.08em; margin: 0.55rem 0 0.35rem 0;
         text-transform: uppercase; font-family: var(--oa-font);
+        line-height: 1.4;
     }
     .oa-status-line { direction: rtl; color: #777; font-size: 0.7rem; margin-top: 0.4rem; }
-    .oa-spacer-top { height: 14vh; }
+    .oa-spacer-top { height: 8vh; }
+
+    /* Native chat_input — wider, taller, lifted toward mid-page */
+    [data-testid="stBottom"] {
+        background: transparent !important;
+        padding-bottom: 2rem !important;
+    }
+    /* Empty chat: lift composer toward vertical center */
+    body:has(.oa-empty-chat) [data-testid="stBottom"],
+    .stApp:has(.oa-empty-chat) [data-testid="stBottom"] {
+        padding-bottom: min(36vh, 300px) !important;
+    }
+    [data-testid="stBottomBlockContainer"] {
+        max-width: 960px !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    [data-testid="stChatInput"] {
+        background: transparent !important;
+        border-top: none !important;
+        padding-bottom: 0.5rem !important;
+        max-width: 960px !important;
+        margin: 0 auto !important;
+    }
+    [data-testid="stChatInput"] > div {
+        background: #121212 !important;
+        border: 1px solid #2c2c2c !important;
+        border-radius: 24px !important;
+        max-width: 960px !important;
+        width: 100% !important;
+        margin: 0 auto !important;
+        min-height: 4.75rem !important;
+        padding: 0.85rem 1rem !important;
+        box-shadow: 0 10px 36px rgba(0, 0, 0, 0.4);
+    }
+    [data-testid="stChatInput"] textarea {
+        font-family: var(--oa-font) !important;
+        font-size: 1.12rem !important;
+        line-height: 1.6 !important;
+        color: #ededed !important;
+        min-height: 2.1rem !important;
+    }
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: #6a6a6a !important;
+        font-family: var(--oa-font) !important;
+        font-size: 1.1rem !important;
+    }
+
+    /* Small + / mic / send icons */
+    [data-testid="stChatInput"] button {
+        min-height: 1.85rem !important;
+        max-height: 1.85rem !important;
+        width: 1.85rem !important;
+        min-width: 1.85rem !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+        color: rgba(237, 237, 237, 0.85) !important;
+        background: transparent !important;
+        border: none !important;
+    }
+    [data-testid="stChatInput"] button svg {
+        width: 1.1rem !important;
+        height: 1.1rem !important;
+        fill: currentColor !important;
+    }
+    /* Enabled send / Stop: light pill + dark glyph (avoid white-on-white) */
+    [data-testid="stChatInputSubmitButton"]:not(:disabled),
+    [data-testid="stChatInput"] button[kind="primary"]:not(:disabled) {
+        background: #ececec !important;
+        color: #111111 !important;
+        border: 1px solid #d0d0d0 !important;
+    }
+    [data-testid="stChatInputSubmitButton"]:not(:disabled) svg,
+    [data-testid="stChatInputSubmitButton"]:not(:disabled) svg *,
+    [data-testid="stChatInput"] button[kind="primary"]:not(:disabled) svg,
+    [data-testid="stChatInput"] button[kind="primary"]:not(:disabled) svg * {
+        fill: #111111 !important;
+        stroke: #111111 !important;
+        color: #111111 !important;
+    }
+    [data-testid="stChatInputSubmitButton"]:disabled {
+        background: #1a1a1a !important;
+        color: rgba(237, 237, 237, 0.35) !important;
+    }
+    [data-testid="stChatInputFileUploadButton"] {
+        order: -1;
+    }
+
     .oa-chips { direction: rtl; display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.5rem 0; }
     .oa-chip {
         display: inline-flex; gap: 0.3rem; padding: 0.25rem 0.55rem;
@@ -161,6 +249,16 @@ STREAMLIT_STYLE: Final[str] = """
         color: #eee; font-size: 0.75rem; font-family: var(--oa-font);
     }
     .oa-chip small { color: #888; font-size: 0.65rem; }
+    .oa-chip-remove {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 1.35rem; height: 1.35rem; border-radius: 999px;
+        border: 1px solid #2a2a2a; background: #141414; color: #888 !important;
+        text-decoration: none !important; font-size: 0.95rem; line-height: 1;
+        margin-inline-start: 0.15rem;
+    }
+    .oa-chip-remove:hover {
+        color: #ff6b6b !important; background: rgba(255,80,80,0.12);
+    }
 
     /* Sidebar model pill — away from chat_input + / mic / send */
     [data-testid="stSidebar"] .oa-side-model + div [data-testid="stSelectbox"],
@@ -182,47 +280,6 @@ STREAMLIT_STYLE: Final[str] = """
         font-size: 0.75rem;
         margin: 0 0 0.35rem 0;
         font-family: var(--oa-font);
-    }
-
-    /* Native chat_input — Cursor-like composer */
-    [data-testid="stChatInput"] {
-        background: transparent !important;
-        border-top: none !important;
-        padding-bottom: 0.75rem !important;
-    }
-    [data-testid="stChatInput"] > div {
-        background: #121212 !important;
-        border: 1px solid #2c2c2c !important;
-        border-radius: 18px !important;
-        max-width: 720px;
-        margin: 0 auto !important;
-    }
-    [data-testid="stChatInput"] textarea {
-        font-family: var(--oa-font) !important;
-        font-size: 0.98rem !important;
-        color: #ededed !important;
-    }
-    [data-testid="stChatInput"] textarea::placeholder {
-        color: #6a6a6a !important;
-        font-family: var(--oa-font) !important;
-    }
-
-    /* Small + / mic / send icons */
-    [data-testid="stChatInput"] button {
-        min-height: 1.75rem !important;
-        max-height: 1.75rem !important;
-        width: 1.75rem !important;
-        min-width: 1.75rem !important;
-        padding: 0 !important;
-        border-radius: 999px !important;
-        color: rgba(237, 237, 237, 0.85) !important;
-    }
-    [data-testid="stChatInput"] button svg {
-        width: 1.05rem !important;
-        height: 1.05rem !important;
-    }
-    [data-testid="stChatInputFileUploadButton"] {
-        order: -1;
     }
 
     .oa-hist-list {
@@ -275,8 +332,17 @@ STREAMLIT_STYLE: Final[str] = """
     }
 
     @media (max-width: 768px) {
-        .block-container { padding-top: 1.2rem !important; }
-        .oa-spacer-top { height: 5vh; }
+        .block-container { padding-top: 1.2rem !important; max-width: 100% !important; }
+        .oa-spacer-top { height: 4vh; }
+        body:has(.oa-empty-chat) [data-testid="stBottom"],
+        .stApp:has(.oa-empty-chat) [data-testid="stBottom"] {
+            padding-bottom: min(30vh, 240px) !important;
+        }
+        [data-testid="stChatInput"],
+        [data-testid="stChatInput"] > div,
+        [data-testid="stBottomBlockContainer"] {
+            max-width: 100% !important;
+        }
     }
 </style>
 """
@@ -288,7 +354,7 @@ ABOUT: Final[str] = """
 BRAND_HTML: Final[str] = ""
 
 EMPTY_CHAT_HTML: Final[str] = """
-<div class="oa-spacer-top"></div>
+<div class="oa-empty-chat oa-spacer-top" aria-hidden="true"></div>
 """
 
 SIDEBAR_BRAND_HTML: Final[str] = """
@@ -313,6 +379,9 @@ MODEL_DESCRIPTION_LABEL: Final[str] = "توضیحات"
 DOWNLOADED_YES: Final[str] = "وضعیت: دانلود شده و روی سیستم موجود است"
 DOWNLOADED_NO: Final[str] = "وضعیت: هنوز دانلود نشده (با انتخاب، دانلود شروع می‌شود)"
 USER_PROMPT_PLACEHOLDER: Final[str] = "بپرسید، بسازید، یا فایل پیوست کنید..."
+THINKING_STATUS: Final[str] = "در حال فکر کردن…"
+THINKING_STATUS_DONE: Final[str] = "پاسخ آماده شد"
+THINKING_STATUS_HINT: Final[str] = "مدل در حال آماده‌سازی پاسخ است. برای توقف، Stop را بزنید."
 CLEAR_CHAT: Final[str] = "گفتگوی جدید"
 REFRESH_MODELS: Final[str] = "بروزرسانی مدل‌ها"
 HISTORY_HEADER: Final[str] = "گفتگوها"

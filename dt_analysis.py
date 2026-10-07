@@ -90,10 +90,42 @@ def _ask_ollama(
 
 FILE_TASK_SYSTEM_PROMPT: Final[str] = (
     "تو یک دستیار هستی که روی محتوای فایل طبق درخواست کاربر کار می‌کند. "
-    "فقط همان کاری را انجام بده که کاربر خواسته. "
+    "همه بخش‌های درخواست را کامل انجام بده؛ اگر چند کار خواسته شده "
+    "(مثلاً هم خلاصه و هم ترجمه)، هیچ بخشی را جا نگذار و نتیجه را واضح بنویس. "
     "به فارسی روان پاسخ بده مگر اینکه کاربر خلافش را بگوید. "
     "از پیشنهادهای اضافه و کارهای اختیاری خودداری کن."
 )
+
+SUMMARY_AND_TRANSLATE_FA_SYSTEM_PROMPT: Final[str] = (
+    "کاربر هم‌زمان خلاصه و ترجمه به فارسی خواسته است. "
+    "محتوای فایل را بفهم و خروجی را فقط به فارسی روان بنویس: "
+    "یک خلاصهٔ کامل و قابل‌استفاده که ترجمه‌شده به فارسی باشد "
+    "(نه خلاصه به زبان اصلی فایل). "
+    "نکات مهم را از قلم نینداز. پیشنهاد اضافه نده."
+)
+
+
+def _prompt_wants_summary(prompt: str) -> bool:
+    """Return True when the user asks for a summary/abstract."""
+
+    lowered = prompt.lower()
+    keys = ("خلاصه", "چکیده", "جمع‌بندی", "جمع بندی", "summar")
+    return any(key in prompt or key in lowered for key in keys)
+
+
+def _prompt_wants_translate_fa(prompt: str) -> bool:
+    """Return True when the user asks for Persian translation."""
+
+    keys = ("ترجمه", "به فارسی", "فارسی کن", "فارسی ترجمه")
+    return any(key in prompt for key in keys)
+
+
+def _prompt_wants_translate_en(prompt: str) -> bool:
+    """Return True when the user asks for English translation."""
+
+    lowered = prompt.lower()
+    keys = ("به انگلیسی", "ترجمه به انگلیسی", "to english", "english")
+    return any(key in prompt or key in lowered for key in keys)
 
 
 def apply_prompt_to_file(
@@ -142,14 +174,14 @@ def apply_prompt_to_file(
         text = utility.fix_text(text=text)
         if not text:
             raise RuntimeError("متنی از صوت استخراج نشد.")
-        answer = _ask_ollama(
-            system_prompt=FILE_TASK_SYSTEM_PROMPT,
-            user_text=(
-                f"درخواست کاربر:\n{prompt}\n\n"
-                f"متن استخراج‌شده از صوت «{file_name}» "
-                f"(Whisper: {used_model}):\n{text}"
-            ),
+        answer = _apply_text_prompt(
+            prompt=prompt,
+            content=text,
+            file_name=file_name,
             model_name=model_name,
+            content_label=(
+                f"متن استخراج‌شده از صوت «{file_name}» (Whisper: {used_model})"
+            ),
         )
         return answer, unloaded
 
@@ -158,15 +190,80 @@ def apply_prompt_to_file(
     content = files.truncate_text(text=content, max_chars=12000)
     if not content:
         raise RuntimeError("متنی از فایل استخراج نشد.")
-    answer = _ask_ollama(
+    answer = _apply_text_prompt(
+        prompt=prompt,
+        content=content,
+        file_name=file_name,
+        model_name=model_name,
+        content_label=f"محتوای فایل «{file_name}»",
+    )
+    return answer, unloaded
+
+
+def _apply_text_prompt(
+    prompt: str,
+    content: str,
+    file_name: str,
+    model_name: str,
+    content_label: str,
+) -> str:
+    """
+    Route text/pdf (or transcribed audio) prompts.
+
+    Multi-intent requests like «خلاصه و به فارسی ترجمه کن» are handled
+    explicitly so the model does not drop the translation half.
+    """
+
+    wants_summary = _prompt_wants_summary(prompt)
+    wants_fa = _prompt_wants_translate_fa(prompt)
+    wants_en = _prompt_wants_translate_en(prompt)
+
+    if wants_summary and wants_fa:
+        return _ask_ollama(
+            system_prompt=SUMMARY_AND_TRANSLATE_FA_SYSTEM_PROMPT,
+            user_text=(
+                f"درخواست کاربر (هر دو بخش الزامی است — خلاصه + ترجمه به فارسی):\n"
+                f"{prompt}\n\n"
+                f"{content_label}:\n{content}"
+            ),
+            model_name=model_name,
+        )
+
+    if wants_summary and wants_en:
+        return _ask_ollama(
+            system_prompt=(
+                "The user asked for both a summary and an English translation. "
+                "Produce a clear English summary of the content. "
+                "Do both: summarize and ensure the output is in English."
+            ),
+            user_text=(
+                f"User request (both parts required):\n{prompt}\n\n"
+                f"{content_label}:\n{content}"
+            ),
+            model_name=model_name,
+        )
+
+    if wants_fa and not wants_summary:
+        return translate_text(text=content, model_name=model_name, to_persian=True)
+
+    if wants_en and not wants_summary:
+        return translate_text(text=content, model_name=model_name, to_persian=False)
+
+    if wants_summary and not wants_fa and not wants_en:
+        return _ask_ollama(
+            system_prompt=SUMMARY_SYSTEM_PROMPT,
+            user_text=content,
+            model_name=model_name,
+        )
+
+    return _ask_ollama(
         system_prompt=FILE_TASK_SYSTEM_PROMPT,
         user_text=(
-            f"درخواست کاربر:\n{prompt}\n\n"
-            f"محتوای فایل «{file_name}»:\n{content}"
+            f"درخواست کاربر (همه بخش‌ها را کامل انجام بده):\n{prompt}\n\n"
+            f"{content_label}:\n{content}"
         ),
         model_name=model_name,
     )
-    return answer, unloaded
 
 
 def analyze_image(image_path: Path, model_name: str) -> str:

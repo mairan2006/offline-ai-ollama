@@ -7,6 +7,8 @@ pypdf
 openai-whisper
 faster-whisper
 huggingface-hub>=0.21,<1.0
+# GPU (CUDA): install torch from the CUDA index, not plain PyPI (CPU-only):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
 torch
 numpy
 sounddevice

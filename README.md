@@ -26,6 +26,8 @@
 cd C:\Users\Maira\source\offline-ai-ollama
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+# Whisper روی GPU (RTX / CUDA 12.x) — نسخهٔ PyPI فقط CPU است:
+pip install torch --index-url https://download.pytorch.org/whl/cu126
 streamlit run .\streamlit_app.py
 ```
 
@@ -33,6 +35,7 @@ streamlit run .\streamlit_app.py
 
 - Ollama نصب و قابل اجرا باشد
 - مدل پیش‌فرض در `.env` (مثلاً `OLLAMA_MODEL=gemma3:4b`) یا از UI انتخاب شود
+- برای STT روی GPU: درایور NVIDIA + نصب `torch` از ایندکس `cu126` (بالا)
 - برای TTS آفلاین: صدای Speech ویندوز نصب باشد (ترجیحاً فارسی)
 - برای Edge TTS: اینترنت لازم است
 - برای فایل‌های صوتی غیر `wav`: بسته `imageio-ffmpeg` (در requirements هست)

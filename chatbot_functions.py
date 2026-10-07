@@ -326,11 +326,6 @@ def prepare_selected_model(model_name: str) -> bool:
 def render_history_section() -> None:
     """Render conversation history as dense sidebar buttons (no new-tab links)."""
 
-    st.markdown(
-        body=f'<div class="oa-side-section">{constants.HISTORY_HEADER}</div>',
-        unsafe_allow_html=True,
-    )
-
     conversations = history.list_conversations(limit=50)
     if not conversations:
         st.caption(body=constants.HISTORY_EMPTY)
@@ -353,10 +348,6 @@ def render_history_section() -> None:
                         load_conversation(conversation_id=conversation_id)
                     st.rerun()
             with col_del:
-                st.markdown(
-                    body='<div class="oa-del-wrap"></div>',
-                    unsafe_allow_html=True,
-                )
                 if st.button(
                     label=constants.HISTORY_DELETE_ICON,
                     key=f"hist_del_{conversation_id}",
@@ -653,7 +644,6 @@ def render_sidebar() -> None:
     with st.sidebar:
         st.markdown(body=constants.SIDEBAR_BRAND_HTML, unsafe_allow_html=True)
 
-        st.markdown(body='<div class="oa-new-chat-wrap">', unsafe_allow_html=True)
         if st.button(
             label=constants.CLEAR_CHAT,
             use_container_width=True,
@@ -662,7 +652,6 @@ def render_sidebar() -> None:
         ):
             start_new_conversation()
             st.rerun()
-        st.markdown(body="</div>", unsafe_allow_html=True)
 
         st.markdown(
             body='<div class="oa-side-model" dir="rtl">',

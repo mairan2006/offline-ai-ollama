@@ -69,6 +69,57 @@ STREAMLIT_STYLE: Final[str] = """
     .stApp { background: var(--oa-bg) !important; color: var(--oa-text) !important; }
     [data-testid="stHeader"] { background: transparent !important; }
 
+    /* Hide only Deploy + ⋮ — keep sidebar expand control */
+    [data-testid="stAppDeployButton"],
+    .stAppDeployButton,
+    #MainMenu,
+    [data-testid="stMainMenu"],
+    [data-testid="stToolbar"] [data-testid="stAppDeployButton"],
+    [data-testid="stToolbar"] #MainMenu,
+    [data-testid="stToolbar"] [data-testid="stMainMenu"] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+    /* Reopen-sidebar chevron when collapsed (do not hide with toolbar rules) */
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="stHeader"] [data-testid="stBaseButton-header"],
+    [data-testid="stHeader"] button[kind="header"],
+    [data-testid="stHeader"] button[kind="headerNoPadding"] {
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        z-index: 1000100 !important;
+    }
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    [data-testid="stExpandSidebarButton"] {
+        position: fixed !important;
+        top: 0.65rem !important;
+        left: 0.65rem !important;
+        right: auto !important;
+        inset-inline-start: 0.65rem !important;
+        inset-inline-end: auto !important;
+        background: #141414 !important;
+        border: 1px solid #2c2c2c !important;
+        border-radius: 999px !important;
+        width: 2.35rem !important;
+        height: 2.35rem !important;
+        min-width: 2.35rem !important;
+        align-items: center !important;
+        justify-content: center !important;
+        color: #ededed !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] [data-testid="stIconMaterial"],
+    [data-testid="collapsedControl"] [data-testid="stIconMaterial"],
+    [data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {
+        color: #ededed !important;
+        font-size: 1.25rem !important;
+    }
+
     .block-container {
         padding-top: 3.5rem !important;
         padding-bottom: 2.5rem !important;
@@ -140,24 +191,59 @@ STREAMLIT_STYLE: Final[str] = """
         min-height: 2rem !important;
         margin: 0.2rem 0 0.4rem 0 !important;
     }
-    [data-testid="stSidebar"] [data-testid="column"]:has(.oa-del-wrap) .stButton > button {
+    /* Trash: hidden until the history row is hovered (match by widget key) */
+    [data-testid="stSidebar"] [class*="st-key-hist_del_"] {
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:hover
+    [class*="st-key-hist_del_"] {
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    [data-testid="stSidebar"] [class*="st-key-hist_del_"] .stButton > button {
         justify-content: center !important;
         text-align: center !important;
         font-size: 0.65rem !important;
-        opacity: 0.4;
         min-height: 1.1rem !important;
         padding: 0 !important;
         border-radius: 999px !important;
+        color: #888 !important;
     }
-    [data-testid="stSidebar"] [data-testid="column"]:has(.oa-del-wrap) .stButton > button:hover {
-        opacity: 1; color: #ff6b6b !important;
+    [data-testid="stSidebar"] [class*="st-key-hist_del_"] .stButton > button:hover {
+        color: #ff6b6b !important;
         background: rgba(255,80,80,0.12) !important;
     }
 
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"],
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 0 !important;
+    }
     .oa-side-brand {
-        direction: rtl; font-weight: 700; font-size: 0.95rem;
-        color: var(--oa-text); margin: 0.1rem 0 0.55rem 0;
+        direction: rtl;
+        text-align: center !important;
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: var(--oa-text);
+        margin: 0.15rem 0 1.25rem 0;
+        padding: 0.1rem 0;
         font-family: var(--oa-font);
+        width: 100%;
+        line-height: 1.4;
+        position: relative;
+        z-index: 1;
+    }
+    /* Streamlit does not nest the button inside this div — space via brand margin-bottom */
+    .oa-new-chat-wrap {
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    [data-testid="stSidebar"] .st-key-sidebar_new_chat {
+        margin-top: 0.15rem !important;
     }
     .oa-side-section {
         direction: rtl; color: #555; font-size: 0.58rem; font-weight: 600;
@@ -201,28 +287,25 @@ STREAMLIT_STYLE: Final[str] = """
         min-height: 8.5rem !important;
         padding: 1rem 1rem 0.65rem 1rem !important;
         box-shadow: 0 10px 36px rgba(0, 0, 0, 0.4);
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        gap: 0.5rem !important;
-        position: relative !important;
         box-sizing: border-box !important;
     }
-    [data-testid="stChatInput"] > div > div:first-child {
-        order: 1;
-        flex: 1 1 auto;
-        width: 100% !important;
-    }
-    [data-testid="stChatInput"] > div > div:last-child {
-        order: 2;
-        display: flex !important;
-        flex-direction: row !important;
+    /* Native row is [textarea][+][?][mic+send]. Group all keys on the LEFT. */
+    [data-testid="stChatInput"] > div > div {
         align-items: center !important;
-        justify-content: flex-start !important;
-        gap: 0.4rem !important;
-        min-height: 2.1rem !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
+    }
+    [data-testid="stChatInput"] > div > div > div:nth-child(1) {
+        order: 3 !important;
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+    }
+    [data-testid="stChatInput"] > div > div > div:nth-child(2) {
+        order: 1 !important;
+    }
+    [data-testid="stChatInput"] > div > div > div:nth-child(3) {
+        order: 4 !important;
+    }
+    [data-testid="stChatInput"] > div > div > div:nth-child(4) {
+        order: 2 !important;
     }
     [data-testid="stChatInput"] textarea {
         font-family: var(--oa-font) !important;
@@ -260,42 +343,48 @@ STREAMLIT_STYLE: Final[str] = """
         height: 1.15rem !important;
     }
     [data-testid="stChatInputFileUploadButton"] {
-        order: -1;
         display: inline-flex !important;
         align-items: center !important;
-        margin-right: 0.15rem !important;
     }
     [data-testid="stChatInputFileUploadButton"] button {
         background: transparent !important;
         border: none !important;
         color: #cfcfcf !important;
     }
-    /* Mic: white circle + dark glyph (Cursor). Icon font fixed above. */
+    /*
+     * Keep + / mic / send together on one side (no margin-left:auto).
+     * Real mic testid in Streamlit 1.63: stChatInputMicButton.
+     */
+    [data-testid="stChatInputMicButton"],
     [data-testid="stChatInput"] button[aria-label*="Record" i],
-    [data-testid="stChatInput"] button[aria-label*="audio" i],
-    [data-testid="stChatInput"] button[aria-label*="microphone" i],
-    [data-testid="stChatInput"] button[aria-label*="Voice" i],
+    [data-testid="stChatInput"] button[aria-label*="recording" i],
     [data-testid="stChatInputAudioButton"] {
         background: #ececec !important;
         color: #111111 !important;
         border: none !important;
-        margin-left: auto !important;
+        margin-left: 0 !important;
     }
+    [data-testid="stChatInputMicButton"] [data-testid="stIconMaterial"],
     [data-testid="stChatInput"] button[aria-label*="Record" i] [data-testid="stIconMaterial"],
-    [data-testid="stChatInput"] button[aria-label*="audio" i] [data-testid="stIconMaterial"],
-    [data-testid="stChatInput"] button[aria-label*="microphone" i] [data-testid="stIconMaterial"],
-    [data-testid="stChatInput"] button[aria-label*="Voice" i] [data-testid="stIconMaterial"],
+    [data-testid="stChatInput"] button[aria-label*="recording" i] [data-testid="stIconMaterial"],
     [data-testid="stChatInputAudioButton"] [data-testid="stIconMaterial"] {
         color: #111111 !important;
         -webkit-text-fill-color: #111111 !important;
         font-size: 1.2rem !important;
         line-height: 1 !important;
     }
-    /* Send / Stop: same light pill, different glyph from mic */
+    [data-testid="stChatInputMicButton"] svg,
+    [data-testid="stChatInput"] button[aria-label*="Record" i] svg,
+    [data-testid="stChatInput"] button[aria-label*="recording" i] svg {
+        fill: #111111 !important;
+        color: #111111 !important;
+    }
+    /* Send / Stop */
     [data-testid="stChatInputSubmitButton"]:not(:disabled) {
         background: #ececec !important;
         color: #111111 !important;
         border: none !important;
+        margin-left: 0 !important;
     }
     [data-testid="stChatInputSubmitButton"]:not(:disabled) [data-testid="stIconMaterial"] {
         color: #111111 !important;
@@ -309,7 +398,7 @@ STREAMLIT_STYLE: Final[str] = """
         background: transparent !important;
         color: rgba(237, 237, 237, 0.3) !important;
         border: 1px solid #2a2a2a !important;
-        margin-left: auto !important;
+        margin-left: 0 !important;
     }
 
     .oa-chips { direction: rtl; display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.5rem 0; }
@@ -463,7 +552,7 @@ EMPTY_CHAT_HTML: Final[str] = """
 """
 
 SIDEBAR_BRAND_HTML: Final[str] = """
-<div class="oa-side-brand" dir="rtl">هوش مصنوعی آفلاین</div>
+<div class="oa-side-brand" dir="rtl" style="text-align:center;">هوش مصنوعی آفلاین</div>
 """
 
 SETTINGS: Final[str] = "تنظیمات"

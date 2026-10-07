@@ -164,6 +164,9 @@ def initial_session_state() -> None:
     if "download_dialog_model" not in st.session_state:
         st.session_state.download_dialog_model = None
 
+    if "history_delete_pending" not in st.session_state:
+        st.session_state.history_delete_pending = None
+
     if "composer_nonce" not in st.session_state:
         st.session_state.composer_nonce = 0
 
@@ -236,6 +239,7 @@ def start_new_conversation() -> None:
     st.session_state.voice_call_use_browser = False
     st.session_state.voice_sent_token = ""
     st.session_state.download_dialog_model = None
+    st.session_state.history_delete_pending = None
     # Bump chat_input widget key so leftover prompt/audio state is dropped.
     st.session_state.composer_nonce = int(st.session_state.get("composer_nonce") or 0) + 1
     _request_history_select(conversation_id=None)
@@ -378,6 +382,71 @@ def _trigger_json_download(payload: str, file_name: str) -> None:
     )
 
 
+def _dismiss_history_delete_dialog() -> None:
+    """Clear pending history delete when the modal is dismissed."""
+
+    st.session_state.history_delete_pending = None
+
+
+@st.dialog(
+    constants.HISTORY_DELETE_CONFIRM_TITLE,
+    width="small",
+    on_dismiss=_dismiss_history_delete_dialog,
+)
+def open_history_delete_dialog() -> None:
+    """Ask for confirmation before deleting one chat or all history."""
+
+    pending = st.session_state.get("history_delete_pending") or {}
+    mode = str(pending.get("mode") or "")
+    title = str(pending.get("title") or "گفتگو").strip() or "گفتگو"
+
+    if mode == "all":
+        st.markdown(
+            body=(
+                f'<div dir="rtl">{constants.HISTORY_DELETE_CONFIRM_ALL}</div>'
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            body=(
+                f'<div dir="rtl">{constants.HISTORY_DELETE_CONFIRM_ONE}'
+                f"<br/><strong>{title}</strong></div>"
+            ),
+            unsafe_allow_html=True,
+        )
+
+    col_yes, col_no = st.columns(2, gap="small")
+    with col_yes:
+        if st.button(
+            label=constants.HISTORY_DELETE_CONFIRM_YES,
+            key="hist_delete_confirm_yes",
+            use_container_width=True,
+            type="primary",
+        ):
+            if mode == "all":
+                history.delete_all_conversations()
+                start_new_conversation()
+                st.session_state.history_notice = constants.HISTORY_DELETED_ALL
+            else:
+                conversation_id = int(pending.get("id") or 0)
+                if conversation_id:
+                    history.delete_conversation(conversation_id=conversation_id)
+                    if st.session_state.conversation_id == conversation_id:
+                        start_new_conversation()
+                    st.session_state.history_notice = constants.HISTORY_DELETED
+            st.session_state.history_delete_pending = None
+            st.rerun()
+    with col_no:
+        if st.button(
+            label=constants.HISTORY_DELETE_CONFIRM_NO,
+            key="hist_delete_confirm_no",
+            use_container_width=True,
+        ):
+            st.session_state.history_delete_pending = None
+            st.rerun()
+
+
 def render_history_section() -> None:
     """Render conversation history as dense sidebar buttons (no new-tab links)."""
 
@@ -388,15 +457,14 @@ def render_history_section() -> None:
         for item in conversations:
             conversation_id = int(item["id"])
             title = str(item.get("title") or "گفتگو").strip() or "گفتگو"
-            if len(title) > 32:
-                title = title[:32] + "…"
+            short_title = title[:32] + "…" if len(title) > 32 else title
             is_active = st.session_state.conversation_id == conversation_id
             col_open, col_export, col_del = st.columns(
                 [0.70, 0.15, 0.15],
                 gap="small",
             )
             with col_open:
-                label = f"• {title}" if is_active else title
+                label = f"• {short_title}" if is_active else short_title
                 if st.button(
                     label=label,
                     key=f"hist_open_{conversation_id}",
@@ -418,7 +486,7 @@ def render_history_section() -> None:
                     _trigger_json_download(
                         payload=export_json,
                         file_name=_history_export_filename(
-                            title=title,
+                            title=short_title,
                             conversation_id=conversation_id,
                         ),
                     )
@@ -429,10 +497,11 @@ def render_history_section() -> None:
                     key=f"hist_del_{conversation_id}",
                     use_container_width=True,
                 ):
-                    history.delete_conversation(conversation_id=conversation_id)
-                    if st.session_state.conversation_id == conversation_id:
-                        start_new_conversation()
-                    st.session_state.history_notice = constants.HISTORY_DELETED
+                    st.session_state.history_delete_pending = {
+                        "mode": "one",
+                        "id": conversation_id,
+                        "title": title,
+                    }
                     st.rerun()
 
     if conversations and st.button(
@@ -440,10 +509,11 @@ def render_history_section() -> None:
         use_container_width=True,
         key="hist_delete_all",
     ):
-        history.delete_all_conversations()
-        start_new_conversation()
-        st.session_state.history_notice = "همه تاریخچه حذف شد."
+        st.session_state.history_delete_pending = {"mode": "all"}
         st.rerun()
+
+    if st.session_state.get("history_delete_pending"):
+        open_history_delete_dialog()
 
     if st.session_state.history_notice:
         st.caption(body=st.session_state.history_notice)

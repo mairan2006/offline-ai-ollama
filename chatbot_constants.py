@@ -232,8 +232,6 @@ STREAMLIT_STYLE: Final[str] = """
         font-family: var(--oa-font);
         width: 100%;
         line-height: 1.4;
-        position: relative;
-        z-index: 1;
     }
     /* Streamlit does not nest the button inside this div — space via brand margin-bottom */
     .oa-new-chat-wrap {
@@ -243,7 +241,14 @@ STREAMLIT_STYLE: Final[str] = """
         padding: 0 !important;
     }
     [data-testid="stSidebar"] .st-key-sidebar_new_chat {
+        position: relative !important;
+        z-index: 30 !important;
         margin-top: 0.15rem !important;
+        pointer-events: auto !important;
+    }
+    [data-testid="stSidebar"] .st-key-sidebar_new_chat .stButton > button {
+        pointer-events: auto !important;
+        cursor: pointer !important;
     }
     .oa-side-section {
         direction: rtl; color: #555; font-size: 0.58rem; font-weight: 600;
@@ -399,6 +404,57 @@ STREAMLIT_STYLE: Final[str] = """
         color: rgba(237, 237, 237, 0.3) !important;
         border: 1px solid #2a2a2a !important;
         margin-left: 0 !important;
+    }
+
+    /*
+     * Real Streamlit voice button stays hidden (React-safe).
+     * Visible #oa-voice-proxy is injected beside + / mic / send inside the box.
+     */
+    [data-testid="stElementContainer"]:has([class*="st-key-composer_voice_call"]),
+    .element-container:has([class*="st-key-composer_voice_call"]),
+    [class*="st-key-composer_voice_call"] {
+        position: fixed !important;
+        left: -10000px !important;
+        top: 0 !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        border: none !important;
+    }
+    #oa-voice-proxy {
+        width: 2rem !important;
+        min-width: 2rem !important;
+        height: 2rem !important;
+        min-height: 2rem !important;
+        max-height: 2rem !important;
+        margin: 0 0.2rem 0 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        border-radius: 999px !important;
+        background: #ececec !important;
+        color: #111111 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer !important;
+        flex: 0 0 auto !important;
+        line-height: 1 !important;
+    }
+    #oa-voice-proxy:hover {
+        background: #ffffff !important;
+    }
+    #oa-voice-proxy .material-symbols-rounded,
+    #oa-voice-proxy [data-testid="stIconMaterial"] {
+        font-family: var(--oa-icons) !important;
+        font-size: 1.15rem !important;
+        color: #111111 !important;
+        -webkit-text-fill-color: #111111 !important;
+        line-height: 1 !important;
+        font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
     }
 
     .oa-chips { direction: rtl; display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.5rem 0; }
@@ -633,6 +689,17 @@ FILES_RESULT_LABEL: Final[str] = "نتیجه تحلیل"
 FILES_UNSUPPORTED: Final[str] = "این نوع فایل پشتیبانی نمی‌شود."
 FILES_NO_FILE: Final[str] = "ابتدا یک فایل آپلود کنید."
 VOICE_HEADER: Final[str] = "مکالمه صوتی"
+VOICE_CALL_BUTTON: Final[str] = "مکالمه صوتی"
+VOICE_CALL_ICON: Final[str] = ":material/headphones:"
+VOICE_CALL_NEXT: Final[str] = "صحبت کنید"
+VOICE_CALL_STOP: Final[str] = "پایان مکالمه"
+VOICE_CALL_HINT: Final[str] = (
+    "مکالمه صوتی: صحبت کنید؛ بعد از سکوت، پاسخ با صدا پخش می‌شود."
+)
+VOICE_CALL_ACTIVE_HINT: Final[str] = (
+    "مکالمه صوتی فعال است. برای نوبت بعد دوباره آیکن هدفون را بزنید."
+)
+VOICE_CALL_NO_MODEL: Final[str] = "ابتدا مدل چت را آماده کنید، بعد مکالمه صوتی را شروع کنید."
 VOICE_HELP: Final[str] = (
     "صحبت کنید. گفتار با Whisper کم‌رم به متن تبدیل می‌شود، مدل جواب می‌دهد، "
     "و پاسخ با Edge یا TTS آفلاین خوانده می‌شود. "

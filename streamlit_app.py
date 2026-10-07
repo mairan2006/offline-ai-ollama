@@ -46,20 +46,21 @@ def main() -> None:
 
     if has_turns:
         functions.render_chat_messages()
-        functions.render_voice_player()
     else:
         st.markdown(body=constants.EMPTY_CHAT_HTML, unsafe_allow_html=True)
 
+    functions.render_voice_player()
     functions.render_composer()
 
     # submit_mode="stop": send arrow becomes Stop while the script runs.
+    # composer_nonce resets the widget when «گفتگوی جدید» is pressed.
     chat_value = st.chat_input(
         placeholder=constants.USER_PROMPT_PLACEHOLDER,
         accept_file="multiple",
         file_type=list(constants.CHAT_FILE_TYPES),
         max_upload_size=50,
         accept_audio=True,
-        key="main_chat_input",
+        key=f"main_chat_input_{st.session_state.composer_nonce}",
         submit_mode="stop",
     )
 

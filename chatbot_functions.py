@@ -150,11 +150,20 @@ def initial_session_state() -> None:
     if "voice_used_whisper" not in st.session_state:
         st.session_state.voice_used_whisper = ""
 
+    if "voice_call_active" not in st.session_state:
+        st.session_state.voice_call_active = False
+
+    if "voice_call_use_browser" not in st.session_state:
+        st.session_state.voice_call_use_browser = False
+
     if "pending_attachments" not in st.session_state:
         st.session_state.pending_attachments = []
 
     if "download_dialog_model" not in st.session_state:
         st.session_state.download_dialog_model = None
+
+    if "composer_nonce" not in st.session_state:
+        st.session_state.composer_nonce = 0
 
 
 def ensure_ollama_ready() -> bool:
@@ -215,6 +224,18 @@ def start_new_conversation() -> None:
     st.session_state.history_title_hint = ""
     st.session_state._history_sync_id = None
     st.session_state.pending_attachments = []
+    st.session_state.file_analysis_result = ""
+    st.session_state.file_analysis_source = ""
+    st.session_state.voice_last_transcript = ""
+    st.session_state.voice_reply_bytes = b""
+    st.session_state.voice_autoplay = False
+    st.session_state.voice_notice = ""
+    st.session_state.voice_call_active = False
+    st.session_state.voice_call_use_browser = False
+    st.session_state.voice_sent_token = ""
+    st.session_state.download_dialog_model = None
+    # Bump chat_input widget key so leftover prompt/audio state is dropped.
+    st.session_state.composer_nonce = int(st.session_state.get("composer_nonce") or 0) + 1
     _request_history_select(conversation_id=None)
     st.session_state.history_notice = constants.HISTORY_NEW
 
@@ -295,6 +316,8 @@ def load_conversation(conversation_id: int) -> None:
     _request_history_select(conversation_id=conversation_id)
     st.session_state.voice_last_transcript = ""
     st.session_state.voice_reply_bytes = b""
+    st.session_state.voice_call_active = False
+    st.session_state.voice_call_use_browser = False
     st.session_state.pending_attachments = []
     st.session_state.history_notice = (
         f"{constants.HISTORY_LOADED} #{conversation_id} | "
@@ -596,9 +619,10 @@ def render_model_selector(key: str = "sidebar_model_select") -> None:
 
 
 def render_composer() -> None:
-    """Attachment chips + download dialog (model lives in sidebar)."""
+    """Attachment chips + voice icon dock + download dialog."""
 
     render_attachment_preview()
+    render_voice_call_icon()
 
     pending = st.session_state.get("download_dialog_model")
     if pending:
@@ -608,6 +632,155 @@ def render_composer() -> None:
     if notice:
         st.info(body=notice)
         st.session_state.voice_notice = ""
+
+    if st.session_state.voice_call_use_browser:
+        browser_audio = st.audio_input(
+            label=constants.VOICE_BROWSER_LABEL,
+            key="voice_call_browser_audio",
+        )
+        if browser_audio is not None:
+            audio_bytes = browser_audio.getvalue() or b""
+            audio_token = (
+                f"{getattr(browser_audio, 'name', 'browser.wav')}:"
+                f"{len(audio_bytes)}"
+            )
+            if (
+                len(audio_bytes) > 0
+                and st.session_state.voice_sent_token != audio_token
+                and st.button(
+                    label=constants.VOICE_BROWSER_SEND,
+                    key="voice_call_browser_send",
+                    use_container_width=True,
+                )
+            ):
+                try:
+                    browser_name = str(
+                        getattr(browser_audio, "name", "") or "browser.wav"
+                    )
+                    if Path(browser_name).suffix.lower() not in {
+                        ".wav",
+                        ".mp3",
+                        ".m4a",
+                        ".ogg",
+                        ".webm",
+                    }:
+                        browser_name = "browser.wav"
+                    saved_path = recorder.save_audio_bytes(
+                        file_name=browser_name,
+                        file_bytes=audio_bytes,
+                    )
+                    st.session_state.voice_sent_token = audio_token
+                    st.session_state.voice_call_use_browser = False
+                    process_voice_audio(audio_path=saved_path)
+                except Exception as exception:
+                    st.session_state.voice_notice = (
+                        "ارسال صدای مرورگر ناموفق بود. "
+                        f"({exception})"
+                    )
+                    st.rerun()
+
+
+def run_voice_conversation_turn() -> None:
+    """One speak→listen turn: system mic until silence, then STT→LLM→TTS."""
+
+    if not st.session_state.model_ready:
+        ok = prepare_selected_model(model_name=st.session_state.model_name)
+        if not ok:
+            st.session_state.voice_notice = (
+                st.session_state.model_status_message
+                or constants.VOICE_CALL_NO_MODEL
+            )
+            return
+
+    mic_name = recorder.get_default_input_device_name()
+    if not mic_name:
+        st.session_state.voice_call_use_browser = True
+        st.session_state.voice_notice = constants.VOICE_NO_MIC
+        return
+
+    try:
+        with st.spinner(text=constants.VOICE_RECORD_SPINNER):
+            recorded_path = recorder.record_until_silence(
+                max_seconds=float(st.session_state.voice_max_seconds or 15),
+            )
+        st.session_state.voice_call_use_browser = False
+        process_voice_audio(audio_path=recorded_path)
+    except Exception as exception:
+        st.session_state.voice_call_use_browser = True
+        st.session_state.voice_notice = (
+            "ضبط با میکروفون سیستم ناموفق بود. از ضبط مرورگر استفاده کنید. "
+            f"({exception})"
+        )
+
+
+def render_voice_call_icon() -> None:
+    """Hidden Streamlit button + in-box proxy icon beside + / mic / send."""
+
+    if st.button(
+        label=constants.VOICE_CALL_ICON,
+        key="composer_voice_call",
+        help=constants.VOICE_CALL_HINT,
+    ):
+        st.session_state.voice_call_active = True
+        run_voice_conversation_turn()
+        st.rerun()
+    _inject_voice_proxy_in_composer()
+
+
+def _inject_voice_proxy_in_composer() -> None:
+    """
+    Place a clickable proxy inside the native chat_input action cluster.
+
+    Does not move React-managed nodes (avoids freezes); only proxies .click().
+    """
+
+    import streamlit.components.v1 as components
+
+    components.html(
+        html="""
+<script>
+(function () {
+  const doc = window.parent.document;
+  function place() {
+    const realBtn = doc.querySelector('[class*="st-key-composer_voice_call"] button');
+    const row = doc.querySelector('[data-testid="stChatInput"] > div > div');
+    if (!realBtn || !row || !row.children.length) return;
+    const cluster = row.children[row.children.length - 1];
+    if (!cluster) return;
+    let proxy = doc.getElementById('oa-voice-proxy');
+    if (!proxy) {
+      proxy = doc.createElement('button');
+      proxy.id = 'oa-voice-proxy';
+      proxy.type = 'button';
+      proxy.setAttribute('aria-label', 'مکالمه صوتی');
+      proxy.title = 'مکالمه صوتی — صحبت کنید، پاسخ با صدا پخش می‌شود';
+      proxy.innerHTML =
+        '<span class="material-symbols-rounded" aria-hidden="true">headphones</span>';
+      proxy.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const btn = doc.querySelector('[class*="st-key-composer_voice_call"] button');
+        if (btn) btn.click();
+      });
+    }
+    const mic = cluster.querySelector('[data-testid="stChatInputMicButton"]');
+    if (mic) {
+      if (proxy.parentElement !== cluster || proxy.nextElementSibling !== mic) {
+        cluster.insertBefore(proxy, mic);
+      }
+    } else if (proxy.parentElement !== cluster) {
+      cluster.appendChild(proxy);
+    }
+  }
+  place();
+  setTimeout(place, 40);
+  setTimeout(place, 180);
+})();
+</script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def render_attachment_preview() -> None:
@@ -644,14 +817,14 @@ def render_sidebar() -> None:
     with st.sidebar:
         st.markdown(body=constants.SIDEBAR_BRAND_HTML, unsafe_allow_html=True)
 
-        if st.button(
+        st.button(
             label=constants.CLEAR_CHAT,
             use_container_width=True,
             key="sidebar_new_chat",
             type="primary",
-        ):
-            start_new_conversation()
-            st.rerun()
+            on_click=start_new_conversation,
+            help=constants.HISTORY_NEW,
+        )
 
         st.markdown(
             body='<div class="oa-side-model" dir="rtl">',
@@ -1190,22 +1363,11 @@ def render_voice_player() -> None:
     if not audio_bytes:
         return
 
-    import base64
-
     autoplay = bool(st.session_state.voice_autoplay)
     st.session_state.voice_autoplay = False
     mime = st.session_state.voice_reply_mime or "audio/mpeg"
-    encoded = base64.b64encode(audio_bytes).decode(encoding="ascii")
-    autoplay_attr = "autoplay" if autoplay else ""
-    st.markdown(
-        body=(
-            '<div dir="rtl">'
-            f'<audio controls {autoplay_attr} style="width: 100%">'
-            f'<source src="data:{mime};base64,{encoded}" type="{mime}">'
-            "</audio></div>"
-        ),
-        unsafe_allow_html=True,
-    )
+    st.caption(body="پاسخ صوتی:")
+    st.audio(data=audio_bytes, format=mime, autoplay=autoplay)
 
 
 def process_voice_audio(audio_path: Path) -> None:

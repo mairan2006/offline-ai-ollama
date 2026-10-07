@@ -84,6 +84,7 @@ HANDOFF.md
 - تست کامل‌تر عکس/PDF و timeout دانلود مدل‌ها بعداً
 
 جزئیات فازها و تیک‌ها: `PLAN.md`  
-تحویل به Agent بعدی: `HANDOFF.md`
+تحویل به Agent بعدی: `HANDOFF.md`  
+مستندات کامل (ماژول‌ها و توابع): پوشهٔ [`doc/`](doc/README.md)
 
 </div>

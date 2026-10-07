@@ -11,9 +11,11 @@ import os
 import time
 import shutil
 import logging
+import threading
 import subprocess
 
 from typing import (
+    Any,
     Final,
     Optional,
     Callable,
@@ -228,35 +230,197 @@ def get_model_display_options(
     options: list[tuple[str, str, bool]] = []
     for name in catalog_names:
         is_downloaded = name in downloaded
-        mark = "✅" if is_downloaded else "⬇️"
-        details = get_model_details(model_name=name)
-        # Keep dropdown label short so it fits.
-        label = f"{mark} {name} | دانلود {details['download_label']}"
+        mark = "🟢" if is_downloaded else "⬇️"
+        label = f"{mark} {name}"
         options.append((name, label, is_downloaded))
 
     return options
+
+
+_download_jobs: dict[str, dict[str, Any]] = {}
+_download_jobs_lock = threading.Lock()
+
+
+def get_download_jobs() -> dict[str, dict[str, Any]]:
+    """Return a copy of in-process download jobs (survives dialog close)."""
+
+    with _download_jobs_lock:
+        return {name: dict(job) for name, job in _download_jobs.items()}
+
+
+def get_download_job(model_name: str) -> Optional[dict[str, Any]]:
+    """Return one download job snapshot, or None."""
+
+    model_name = _normalize_model_name(model_name=model_name)
+    with _download_jobs_lock:
+        job = _download_jobs.get(model_name)
+        return dict(job) if job else None
+
+
+def clear_finished_download_job(model_name: str) -> None:
+    """Remove a done/error job entry from the in-memory map."""
+
+    model_name = _normalize_model_name(model_name=model_name)
+    with _download_jobs_lock:
+        job = _download_jobs.get(model_name)
+        if job and job.get("status") in {"done", "error"}:
+            _download_jobs.pop(model_name, None)
+
+
+def _update_download_job(model_name: str, **fields: Any) -> None:
+    """Merge fields into a download job record."""
+
+    with _download_jobs_lock:
+        current = dict(_download_jobs.get(model_name) or {})
+        current.update(fields)
+        _download_jobs[model_name] = current
+
+
+def _parse_pull_event(event: Any) -> dict[str, Any]:
+    """Normalize an ollama.pull stream event into status/bytes/percent."""
+
+    if isinstance(event, dict):
+        status = event.get("status")
+        completed = event.get("completed")
+        total = event.get("total")
+    else:
+        status = getattr(event, "status", None)
+        completed = getattr(event, "completed", None)
+        total = getattr(event, "total", None)
+
+    percent: Optional[float] = None
+    try:
+        if completed is not None and total:
+            percent = max(
+                0.0,
+                min(100.0, 100.0 * float(completed) / float(total)),
+            )
+    except Exception:
+        percent = None
+
+    return {
+        "status": str(status or ""),
+        "completed": int(completed) if completed is not None else None,
+        "total": int(total) if total is not None else None,
+        "percent": percent,
+    }
 
 
 def pull_model(
     model_name: str,
     base_url: str = BASE_URL_OFFLINE,
     progress_callback: Optional[Callable[[str], None]] = None,
+    progress_hook: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> None:
-    """Download model with ollama.pull."""
+    """Download model with ollama.pull (optional percent via progress_hook)."""
 
     model_name = _normalize_model_name(model_name=model_name)
     client = get_offline_client(base_url=base_url)
 
     if progress_callback:
         progress_callback(f"شروع دانلود مدل {model_name}...")
+    if progress_hook:
+        progress_hook(
+            {
+                "status": f"شروع دانلود مدل {model_name}...",
+                "completed": None,
+                "total": None,
+                "percent": 0.0,
+            }
+        )
 
     stream = client.pull(model=model_name, stream=True)
     for event in stream:
-        status = getattr(event, "status", None)
-        if status is None and isinstance(event, dict):
-            status = event.get("status")
+        parsed = _parse_pull_event(event)
+        status = parsed.get("status") or ""
         if progress_callback and status:
             progress_callback(str(status))
+        if progress_hook:
+            progress_hook(parsed)
+
+
+def start_model_download(
+    model_name: str,
+    base_url: str = BASE_URL_OFFLINE,
+) -> tuple[bool, str]:
+    """
+    Start a background download job if one is not already running.
+
+    Job state lives in-process so closing/reopening the dialog keeps progress.
+    """
+
+    model_name = _normalize_model_name(model_name=model_name)
+    if is_model_downloaded(model_name=model_name, base_url=base_url):
+        return False, f"مدل {model_name} از قبل دانلود شده است."
+
+    with _download_jobs_lock:
+        existing = _download_jobs.get(model_name)
+        if existing and existing.get("status") == "running":
+            return False, f"دانلود {model_name} از قبل در حال اجراست."
+        _download_jobs[model_name] = {
+            "model_name": model_name,
+            "status": "running",
+            "percent": 0.0,
+            "message": "در صف دانلود...",
+            "bytes_done": 0,
+            "bytes_total": 0,
+            "error": "",
+        }
+
+    worker = threading.Thread(
+        target=_download_worker,
+        args=(model_name, base_url),
+        daemon=True,
+        name=f"ollama-pull-{model_name}",
+    )
+    worker.start()
+    return True, f"دانلود {model_name} شروع شد."
+
+
+def _download_worker(model_name: str, base_url: str) -> None:
+    """Background worker that pulls one model and updates job progress."""
+
+    def hook(parsed: dict[str, Any]) -> None:
+        fields: dict[str, Any] = {
+            "status": "running",
+            "message": str(parsed.get("status") or "در حال دانلود..."),
+        }
+        if parsed.get("completed") is not None:
+            fields["bytes_done"] = int(parsed["completed"])
+        if parsed.get("total") is not None:
+            fields["bytes_total"] = int(parsed["total"])
+        if parsed.get("percent") is not None:
+            fields["percent"] = float(parsed["percent"])
+        _update_download_job(model_name, **fields)
+
+    try:
+        pull_model(
+            model_name=model_name,
+            base_url=base_url,
+            progress_hook=hook,
+        )
+        if is_model_downloaded(model_name=model_name, base_url=base_url):
+            _update_download_job(
+                model_name,
+                status="done",
+                percent=100.0,
+                message="دانلود کامل شد.",
+                error="",
+            )
+        else:
+            _update_download_job(
+                model_name,
+                status="error",
+                message="دانلود تمام شد ولی مدل پیدا نشد.",
+                error="download incomplete",
+            )
+    except Exception as exception:
+        _update_download_job(
+            model_name,
+            status="error",
+            message="دانلود ناموفق بود.",
+            error=str(exception),
+        )
 
 
 def list_loaded_models(base_url: str = BASE_URL_OFFLINE) -> list[str]:

@@ -19,12 +19,16 @@ import dtx_whisper as whisper_module
 import model_constants as model_constants
 from dt_ollama_manager import (
     can_fit_model_in_ram,
+    clear_finished_download_job,
     ensure_ollama_running,
     format_bytes,
     get_available_ram_bytes,
+    get_download_job,
     get_model_details,
     get_model_display_options,
+    is_model_downloaded,
     prepare_model_for_use,
+    start_model_download,
 )
 from dt_utility import format_seconds
 from dtx_ollama import chat
@@ -148,6 +152,9 @@ def initial_session_state() -> None:
 
     if "pending_attachments" not in st.session_state:
         st.session_state.pending_attachments = []
+
+    if "download_dialog_model" not in st.session_state:
+        st.session_state.download_dialog_model = None
 
 
 def ensure_ollama_ready() -> bool:
@@ -376,9 +383,9 @@ def render_history_section() -> None:
 
 
 def apply_selected_model(selected_name: str) -> None:
-    """Switch model when composer/sidebar selection changes."""
+    """Switch to a downloaded model and apply RAM policy."""
 
-    if selected_name == st.session_state.model_name:
+    if selected_name == st.session_state.model_name and st.session_state.model_ready:
         return
 
     previous_model = st.session_state.model_name
@@ -397,8 +404,174 @@ def apply_selected_model(selected_name: str) -> None:
     st.rerun()
 
 
-def render_model_selector(key: str = "composer_model") -> None:
-    """Compact model dropdown for the composer toolbar (short names)."""
+def _downloaded_map() -> dict[str, bool]:
+    """Map model name -> downloaded from cached options."""
+
+    return {
+        str(name): bool(is_downloaded)
+        for name, _label, is_downloaded in st.session_state.model_options_cache
+    }
+
+
+def _label_map() -> dict[str, str]:
+    """Map model name -> short dropdown label."""
+
+    return {
+        str(name): str(label)
+        for name, label, _is_downloaded in st.session_state.model_options_cache
+    }
+
+
+def _on_model_select_change() -> None:
+    """Downloaded models switch immediately; others open the download dialog."""
+
+    selected = str(st.session_state.get("sidebar_model_select") or "")
+    current = str(st.session_state.model_name or "")
+    if not selected or selected == current:
+        return
+
+    if _downloaded_map().get(selected, False):
+        apply_selected_model(selected_name=selected)
+        return
+
+    st.session_state.download_dialog_model = selected
+    # Reset selectbox to the active model (on_change runs before the widget).
+    st.session_state.sidebar_model_select = current
+
+
+def _dismiss_download_dialog() -> None:
+    """Clear dialog target when the user closes the modal."""
+
+    st.session_state.download_dialog_model = None
+
+
+@st.fragment(run_every=1.0)
+def _render_download_progress(model_name: str) -> None:
+    """Live percent panel; job state survives closing/reopening the dialog."""
+
+    job = get_download_job(model_name=model_name)
+    if not job:
+        st.caption(body=constants.DOWNLOAD_WAITING)
+        return
+
+    status = str(job.get("status") or "")
+    percent = float(job.get("percent") or 0.0)
+    message = str(job.get("message") or "")
+    bytes_done = int(job.get("bytes_done") or 0)
+    bytes_total = int(job.get("bytes_total") or 0)
+
+    st.progress(min(max(percent / 100.0, 0.0), 1.0))
+    st.markdown(
+        body=(
+            f'<div class="oa-dl-percent" dir="rtl">'
+            f"{percent:.0f}٪ — {message}"
+            f"</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+    if bytes_total > 0:
+        st.caption(
+            body=f"{format_bytes(bytes_done)} / {format_bytes(bytes_total)}"
+        )
+
+    if status == "done":
+        if not any(
+            name == model_name and is_dl
+            for name, _label, is_dl in st.session_state.model_options_cache
+        ):
+            refresh_model_options()
+        st.success(body=constants.DOWNLOAD_DONE)
+        if st.button(
+            label=constants.DOWNLOAD_USE_MODEL,
+            key=f"dl_use_{model_name}",
+            use_container_width=True,
+            type="primary",
+        ):
+            clear_finished_download_job(model_name=model_name)
+            refresh_model_options()
+            st.session_state.download_dialog_model = None
+            st.session_state.sidebar_model_select = model_name
+            apply_selected_model(selected_name=model_name)
+            st.rerun()
+    elif status == "error":
+        error_text = str(job.get("error") or "")
+        st.error(
+            body=(
+                f"{constants.DOWNLOAD_FAILED}"
+                + (f" ({error_text})" if error_text else "")
+            )
+        )
+        if st.button(
+            label=constants.DOWNLOAD_RETRY,
+            key=f"dl_retry_{model_name}",
+            use_container_width=True,
+        ):
+            clear_finished_download_job(model_name=model_name)
+            start_model_download(model_name=model_name)
+            st.rerun()
+
+
+@st.dialog(
+    constants.DOWNLOAD_DIALOG_TITLE,
+    width="small",
+    on_dismiss=_dismiss_download_dialog,
+)
+def open_model_download_dialog(model_name: str) -> None:
+    """Modal download UI with persistent percent progress."""
+
+    details = get_model_details(model_name=model_name)
+    st.markdown(
+        body=(
+            f'<div class="oa-dl-head" dir="rtl">'
+            f"<strong>{details.get('title') or model_name}</strong>"
+            f"<br/><span>{model_name}</span>"
+            f"</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        body=(
+            f"{constants.DOWNLOAD_SIZE_LABEL}: "
+            f"{details.get('download_label', '—')} | "
+            f"{constants.RAM_NEED_LABEL}: "
+            f"{details.get('ram_label', '—')}"
+        )
+    )
+
+    if is_model_downloaded(model_name=model_name):
+        st.success(body=constants.DOWNLOADED_YES)
+        if st.button(
+            label=constants.DOWNLOAD_USE_MODEL,
+            key=f"dl_already_{model_name}",
+            use_container_width=True,
+            type="primary",
+        ):
+            refresh_model_options()
+            st.session_state.download_dialog_model = None
+            st.session_state.sidebar_model_select = model_name
+            apply_selected_model(selected_name=model_name)
+            st.rerun()
+        return
+
+    job = get_download_job(model_name=model_name)
+    if not job:
+        started, notice = start_model_download(model_name=model_name)
+        if not started and "از قبل در حال اجراست" not in notice:
+            st.warning(body=notice)
+
+    _render_download_progress(model_name=model_name)
+
+    if st.button(
+        label=constants.DOWNLOAD_CLOSE,
+        key=f"dl_close_{model_name}",
+        use_container_width=True,
+    ):
+        st.session_state.download_dialog_model = None
+        st.rerun()
+
+
+def render_model_selector(key: str = "sidebar_model_select") -> None:
+    """Model selectbox for the sidebar (under new-chat)."""
 
     if not st.session_state.ollama_ready:
         return
@@ -410,28 +583,40 @@ def render_model_selector(key: str = "composer_model") -> None:
     if not options:
         return
 
-    # Short names only — Cursor-like pill, not long download labels.
     names = [item[0] for item in options]
     current_name = st.session_state.model_name
-    current_index = names.index(current_name) if current_name in names else 0
+    if current_name not in names:
+        names = [current_name] + names
 
-    selected_name = st.selectbox(
+    labels = _label_map()
+    if key not in st.session_state:
+        st.session_state[key] = current_name
+    elif st.session_state.get(key) not in names:
+        st.session_state[key] = current_name
+
+    st.selectbox(
         label=constants.SELECT_YOUR_MODEL,
         options=names,
-        index=current_index,
         key=key,
+        format_func=lambda name: labels.get(str(name), f"🟢 {name}"),
         label_visibility="collapsed",
+        on_change=_on_model_select_change,
     )
-    apply_selected_model(selected_name=str(selected_name))
 
 
 def render_composer() -> None:
-    """
-    Chips above native chat_input only.
-    Model picker is in the sidebar (never overlaps + / mic / send).
-    """
+    """Attachment chips + download dialog (model lives in sidebar)."""
 
     render_attachment_preview()
+
+    pending = st.session_state.get("download_dialog_model")
+    if pending:
+        open_model_download_dialog(model_name=str(pending))
+
+    notice = str(st.session_state.get("voice_notice") or "").strip()
+    if notice:
+        st.info(body=notice)
+        st.session_state.voice_notice = ""
 
 
 def render_attachment_preview() -> None:
@@ -479,7 +664,6 @@ def render_sidebar() -> None:
             st.rerun()
         st.markdown(body="</div>", unsafe_allow_html=True)
 
-        # Model pill — sidebar keeps it off the + / mic / send row
         st.markdown(
             body='<div class="oa-side-model" dir="rtl">',
             unsafe_allow_html=True,
@@ -605,21 +789,27 @@ def handle_chat_input_value(chat_value) -> None:
     text, uploaded_files, audio = parse_chat_input(chat_value)
 
     if audio is not None:
-        audio_bytes = audio.getvalue()
-        audio_name = str(getattr(audio, "name", "") or "browser.wav")
-        if Path(audio_name).suffix.lower() not in {
-            ".wav",
-            ".mp3",
-            ".m4a",
-            ".ogg",
-            ".webm",
-        }:
-            audio_name = "browser.wav"
-        saved_path = recorder.save_audio_bytes(
-            file_name=audio_name,
-            file_bytes=audio_bytes,
-        )
-        process_voice_audio(audio_path=saved_path)
+        try:
+            audio_bytes = audio.getvalue() or b""
+            if len(audio_bytes) <= 0:
+                st.warning(body="صوت خالی بود؛ دوباره با میکروفون ضبط کنید.")
+                return
+            audio_name = str(getattr(audio, "name", "") or "browser.webm")
+            if Path(audio_name).suffix.lower() not in {
+                ".wav",
+                ".mp3",
+                ".m4a",
+                ".ogg",
+                ".webm",
+            }:
+                audio_name = "browser.webm"
+            saved_path = recorder.save_audio_bytes(
+                file_name=audio_name,
+                file_bytes=audio_bytes,
+            )
+            process_voice_audio(audio_path=saved_path)
+        except Exception as exception:
+            st.error(body=f"تبدیل گفتار به متن ناموفق بود. ({exception})")
         return
 
     if uploaded_files and not text:

@@ -20,6 +20,7 @@ DEFAULT_MODEL_NAME: Final[str] = get_key_value(
 STREAMLIT_STYLE: Final[str] = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap');
 
     :root {
         --oa-bg: #000000;
@@ -30,13 +31,20 @@ STREAMLIT_STYLE: Final[str] = """
         --oa-text: #ededed;
         --oa-muted: #8a8a8a;
         --oa-font: 'Vazirmatn', Tahoma, sans-serif;
+        --oa-icons: "Material Symbols Rounded", "Material Symbols Outlined",
+            "Material Icons", sans-serif;
+        --oa-composer-max: 960px;
     }
 
-    html, body, .stApp, button, input, textarea, select, li, p, div,
+    html, body, .stApp, input, textarea, select, li, p, div,
     [data-testid="stMarkdownContainer"],
     [data-testid="stChatMessage"],
     [data-testid="stCaptionContainer"] {
         font-family: var(--oa-font) !important;
+    }
+    /* Do NOT force Vazirmatn on buttons — breaks Material icon ligatures (tofu/square). */
+    button {
+        font-family: inherit;
     }
 
     /* Material ligature icons — must NOT use Vazirmatn */
@@ -44,14 +52,18 @@ STREAMLIT_STYLE: Final[str] = """
     [data-testid="stChatMessageAvatarUser"],
     [data-testid="stChatMessageAvatarAssistant"],
     [data-testid="stExpanderIcon"],
-    [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {
-        font-family: "Material Symbols Rounded", "Material Symbols Outlined",
-            "Material Icons", sans-serif !important;
+    [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"],
+    [data-testid="stChatInput"] [data-testid="stIconMaterial"],
+    [data-testid="stChatInput"] span.material-symbols-rounded,
+    [data-testid="stChatInput"] span.material-symbols-outlined,
+    [data-testid="stChatInput"] button span {
+        font-family: var(--oa-icons) !important;
         font-style: normal !important;
         font-weight: 400 !important;
         letter-spacing: normal !important;
         text-transform: none !important;
         -webkit-font-smoothing: antialiased;
+        font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
     }
 
     .stApp { background: var(--oa-bg) !important; color: var(--oa-text) !important; }
@@ -60,7 +72,7 @@ STREAMLIT_STYLE: Final[str] = """
     .block-container {
         padding-top: 3.5rem !important;
         padding-bottom: 2.5rem !important;
-        max-width: 960px !important;
+        max-width: var(--oa-composer-max) !important;
     }
 
     .block-container, section, input, textarea,
@@ -156,45 +168,72 @@ STREAMLIT_STYLE: Final[str] = """
     .oa-status-line { direction: rtl; color: #777; font-size: 0.7rem; margin-top: 0.4rem; }
     .oa-spacer-top { height: 8vh; }
 
-    /* Native chat_input — wider, taller, lifted toward mid-page */
+    /* Multi-line prompt box, lifted toward vertical center */
     [data-testid="stBottom"] {
         background: transparent !important;
-        padding-bottom: 2rem !important;
+        padding-bottom: min(28vh, 240px) !important;
     }
-    /* Empty chat: lift composer toward vertical center */
-    body:has(.oa-empty-chat) [data-testid="stBottom"],
-    .stApp:has(.oa-empty-chat) [data-testid="stBottom"] {
-        padding-bottom: min(36vh, 300px) !important;
+    /* With chat messages: keep composer near the bottom */
+    .stApp:has([data-testid="stChatMessage"]) [data-testid="stBottom"] {
+        padding-bottom: 1.5rem !important;
     }
     [data-testid="stBottomBlockContainer"] {
-        max-width: 960px !important;
+        max-width: var(--oa-composer-max) !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
+        width: 100% !important;
     }
     [data-testid="stChatInput"] {
         background: transparent !important;
         border-top: none !important;
-        padding-bottom: 0.5rem !important;
-        max-width: 960px !important;
+        padding-bottom: 0.35rem !important;
+        max-width: var(--oa-composer-max) !important;
+        width: 100% !important;
         margin: 0 auto !important;
     }
     [data-testid="stChatInput"] > div {
         background: #121212 !important;
         border: 1px solid #2c2c2c !important;
         border-radius: 24px !important;
-        max-width: 960px !important;
+        max-width: var(--oa-composer-max) !important;
         width: 100% !important;
         margin: 0 auto !important;
-        min-height: 4.75rem !important;
-        padding: 0.85rem 1rem !important;
+        min-height: 8.5rem !important;
+        padding: 1rem 1rem 0.65rem 1rem !important;
         box-shadow: 0 10px 36px rgba(0, 0, 0, 0.4);
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 0.5rem !important;
+        position: relative !important;
+        box-sizing: border-box !important;
+    }
+    [data-testid="stChatInput"] > div > div:first-child {
+        order: 1;
+        flex: 1 1 auto;
+        width: 100% !important;
+    }
+    [data-testid="stChatInput"] > div > div:last-child {
+        order: 2;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        gap: 0.4rem !important;
+        min-height: 2.1rem !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
     [data-testid="stChatInput"] textarea {
         font-family: var(--oa-font) !important;
         font-size: 1.12rem !important;
-        line-height: 1.6 !important;
+        line-height: 1.65 !important;
         color: #ededed !important;
-        min-height: 2.1rem !important;
+        min-height: 4.75rem !important;
+        height: auto !important;
+        max-height: 40vh !important;
+        resize: none !important;
+        overflow-y: auto !important;
     }
     [data-testid="stChatInput"] textarea::placeholder {
         color: #6a6a6a !important;
@@ -202,44 +241,75 @@ STREAMLIT_STYLE: Final[str] = """
         font-size: 1.1rem !important;
     }
 
-    /* Small + / mic / send icons */
     [data-testid="stChatInput"] button {
-        min-height: 1.85rem !important;
-        max-height: 1.85rem !important;
-        width: 1.85rem !important;
-        min-width: 1.85rem !important;
+        min-height: 2rem !important;
+        max-height: 2rem !important;
+        width: 2rem !important;
+        min-width: 2rem !important;
         padding: 0 !important;
         border-radius: 999px !important;
-        color: rgba(237, 237, 237, 0.85) !important;
+        color: rgba(237, 237, 237, 0.9) !important;
         background: transparent !important;
         border: none !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
     [data-testid="stChatInput"] button svg {
-        width: 1.1rem !important;
-        height: 1.1rem !important;
-        fill: currentColor !important;
-    }
-    /* Enabled send / Stop: light pill + dark glyph (avoid white-on-white) */
-    [data-testid="stChatInputSubmitButton"]:not(:disabled),
-    [data-testid="stChatInput"] button[kind="primary"]:not(:disabled) {
-        background: #ececec !important;
-        color: #111111 !important;
-        border: 1px solid #d0d0d0 !important;
-    }
-    [data-testid="stChatInputSubmitButton"]:not(:disabled) svg,
-    [data-testid="stChatInputSubmitButton"]:not(:disabled) svg *,
-    [data-testid="stChatInput"] button[kind="primary"]:not(:disabled) svg,
-    [data-testid="stChatInput"] button[kind="primary"]:not(:disabled) svg * {
-        fill: #111111 !important;
-        stroke: #111111 !important;
-        color: #111111 !important;
-    }
-    [data-testid="stChatInputSubmitButton"]:disabled {
-        background: #1a1a1a !important;
-        color: rgba(237, 237, 237, 0.35) !important;
+        width: 1.15rem !important;
+        height: 1.15rem !important;
     }
     [data-testid="stChatInputFileUploadButton"] {
         order: -1;
+        display: inline-flex !important;
+        align-items: center !important;
+        margin-right: 0.15rem !important;
+    }
+    [data-testid="stChatInputFileUploadButton"] button {
+        background: transparent !important;
+        border: none !important;
+        color: #cfcfcf !important;
+    }
+    /* Mic: white circle + dark glyph (Cursor). Icon font fixed above. */
+    [data-testid="stChatInput"] button[aria-label*="Record" i],
+    [data-testid="stChatInput"] button[aria-label*="audio" i],
+    [data-testid="stChatInput"] button[aria-label*="microphone" i],
+    [data-testid="stChatInput"] button[aria-label*="Voice" i],
+    [data-testid="stChatInputAudioButton"] {
+        background: #ececec !important;
+        color: #111111 !important;
+        border: none !important;
+        margin-left: auto !important;
+    }
+    [data-testid="stChatInput"] button[aria-label*="Record" i] [data-testid="stIconMaterial"],
+    [data-testid="stChatInput"] button[aria-label*="audio" i] [data-testid="stIconMaterial"],
+    [data-testid="stChatInput"] button[aria-label*="microphone" i] [data-testid="stIconMaterial"],
+    [data-testid="stChatInput"] button[aria-label*="Voice" i] [data-testid="stIconMaterial"],
+    [data-testid="stChatInputAudioButton"] [data-testid="stIconMaterial"] {
+        color: #111111 !important;
+        -webkit-text-fill-color: #111111 !important;
+        font-size: 1.2rem !important;
+        line-height: 1 !important;
+    }
+    /* Send / Stop: same light pill, different glyph from mic */
+    [data-testid="stChatInputSubmitButton"]:not(:disabled) {
+        background: #ececec !important;
+        color: #111111 !important;
+        border: none !important;
+    }
+    [data-testid="stChatInputSubmitButton"]:not(:disabled) [data-testid="stIconMaterial"] {
+        color: #111111 !important;
+        -webkit-text-fill-color: #111111 !important;
+    }
+    [data-testid="stChatInputSubmitButton"]:not(:disabled) svg {
+        fill: #111111 !important;
+        color: #111111 !important;
+    }
+    [data-testid="stChatInputSubmitButton"]:disabled {
+        background: transparent !important;
+        color: rgba(237, 237, 237, 0.3) !important;
+        border: 1px solid #2a2a2a !important;
+        margin-left: auto !important;
     }
 
     .oa-chips { direction: rtl; display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.5rem 0; }
@@ -260,18 +330,40 @@ STREAMLIT_STYLE: Final[str] = """
         color: #ff6b6b !important; background: rgba(255,80,80,0.12);
     }
 
-    /* Sidebar model pill — away from chat_input + / mic / send */
-    [data-testid="stSidebar"] .oa-side-model + div [data-testid="stSelectbox"],
-    [data-testid="stSidebar"] [data-testid="stSelectbox"]:first-of-type {
-        margin: 0.15rem 0 0.45rem 0 !important;
+    /* Sidebar model select — under «گفتگوی جدید» */
+    [data-testid="stSidebar"] .oa-side-model {
+        margin: 0.35rem 0 0.55rem 0;
     }
-    [data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    [data-testid="stSidebar"] .st-key-sidebar_model_select {
+        margin: 0 !important;
+    }
+    [data-testid="stSidebar"] .st-key-sidebar_model_select label {
+        display: none !important;
+    }
+    [data-testid="stSidebar"] .st-key-sidebar_model_select [data-baseweb="select"] > div {
         background: #121212 !important;
         border: 1px solid #2c2c2c !important;
         border-radius: 999px !important;
-        min-height: 1.85rem !important;
-        font-size: 0.78rem !important;
+        min-height: 2rem !important;
+        font-size: 0.8rem !important;
         font-family: var(--oa-font) !important;
+        color: #ededed !important;
+    }
+    .oa-dl-head {
+        direction: rtl;
+        text-align: right;
+        font-family: var(--oa-font);
+        margin-bottom: 0.5rem;
+        line-height: 1.5;
+    }
+    .oa-dl-head span { color: #888; font-size: 0.85rem; }
+    .oa-dl-percent {
+        direction: rtl;
+        text-align: right;
+        font-family: var(--oa-font);
+        font-size: 0.9rem;
+        color: #ddd;
+        margin: 0.35rem 0;
     }
 
     .oa-attach-hint {
@@ -332,16 +424,29 @@ STREAMLIT_STYLE: Final[str] = """
     }
 
     @media (max-width: 768px) {
-        .block-container { padding-top: 1.2rem !important; max-width: 100% !important; }
-        .oa-spacer-top { height: 4vh; }
-        body:has(.oa-empty-chat) [data-testid="stBottom"],
-        .stApp:has(.oa-empty-chat) [data-testid="stBottom"] {
-            padding-bottom: min(30vh, 240px) !important;
+        .block-container {
+            padding-top: 1.2rem !important;
+            padding-bottom: 2rem !important;
+            max-width: 100% !important;
+        }
+        .oa-spacer-top { height: 2vh; }
+        [data-testid="stBottom"] {
+            padding-bottom: min(22vh, 180px) !important;
+        }
+        .stApp:has([data-testid="stChatMessage"]) [data-testid="stBottom"] {
+            padding-bottom: 1rem !important;
         }
         [data-testid="stChatInput"],
         [data-testid="stChatInput"] > div,
         [data-testid="stBottomBlockContainer"] {
             max-width: 100% !important;
+        }
+        [data-testid="stChatInput"] > div {
+            min-height: 7rem !important;
+        }
+        [data-testid="stChatInput"] textarea {
+            font-size: 1rem !important;
+            min-height: 3.75rem !important;
         }
     }
 </style>
@@ -377,7 +482,14 @@ RAM_NEED_LABEL: Final[str] = "رم تقریبی موردنیاز"
 MODEL_CATEGORY_LABEL: Final[str] = "دسته"
 MODEL_DESCRIPTION_LABEL: Final[str] = "توضیحات"
 DOWNLOADED_YES: Final[str] = "وضعیت: دانلود شده و روی سیستم موجود است"
-DOWNLOADED_NO: Final[str] = "وضعیت: هنوز دانلود نشده (با انتخاب، دانلود شروع می‌شود)"
+DOWNLOADED_NO: Final[str] = "وضعیت: هنوز دانلود نشده"
+DOWNLOAD_DIALOG_TITLE: Final[str] = "دانلود مدل"
+DOWNLOAD_WAITING: Final[str] = "در حال آماده‌سازی دانلود..."
+DOWNLOAD_DONE: Final[str] = "دانلود کامل شد."
+DOWNLOAD_FAILED: Final[str] = "دانلود ناموفق بود."
+DOWNLOAD_RETRY: Final[str] = "تلاش دوباره"
+DOWNLOAD_USE_MODEL: Final[str] = "استفاده از این مدل"
+DOWNLOAD_CLOSE: Final[str] = "بستن"
 USER_PROMPT_PLACEHOLDER: Final[str] = "بپرسید، بسازید، یا فایل پیوست کنید..."
 THINKING_STATUS: Final[str] = "در حال فکر کردن…"
 THINKING_STATUS_DONE: Final[str] = "پاسخ آماده شد"

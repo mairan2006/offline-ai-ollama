@@ -58,6 +58,7 @@ def main() -> None:
         accept_file="multiple",
         file_type=list(constants.CHAT_FILE_TYPES),
         max_upload_size=50,
+        accept_audio=True,
         key="main_chat_input",
         submit_mode="stop",
     )

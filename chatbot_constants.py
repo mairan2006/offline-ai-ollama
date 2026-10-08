@@ -191,19 +191,23 @@ STREAMLIT_STYLE: Final[str] = """
         min-height: 2rem !important;
         margin: 0.2rem 0 0.4rem 0 !important;
     }
-    /* Trash: hidden until the history row is hovered (match by widget key) */
-    [data-testid="stSidebar"] [class*="st-key-hist_del_"] {
+    /* Export / trash: hidden until the history row is hovered */
+    [data-testid="stSidebar"] [class*="st-key-hist_del_"],
+    [data-testid="stSidebar"] [class*="st-key-hist_export_"] {
         visibility: hidden !important;
         opacity: 0 !important;
         pointer-events: none !important;
     }
     [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:hover
-    [class*="st-key-hist_del_"] {
+    [class*="st-key-hist_del_"],
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:hover
+    [class*="st-key-hist_export_"] {
         visibility: visible !important;
         opacity: 1 !important;
         pointer-events: auto !important;
     }
-    [data-testid="stSidebar"] [class*="st-key-hist_del_"] .stButton > button {
+    [data-testid="stSidebar"] [class*="st-key-hist_del_"] .stButton > button,
+    [data-testid="stSidebar"] [class*="st-key-hist_export_"] .stButton > button {
         justify-content: center !important;
         text-align: center !important;
         font-size: 0.65rem !important;
@@ -215,6 +219,10 @@ STREAMLIT_STYLE: Final[str] = """
     [data-testid="stSidebar"] [class*="st-key-hist_del_"] .stButton > button:hover {
         color: #ff6b6b !important;
         background: rgba(255,80,80,0.12) !important;
+    }
+    [data-testid="stSidebar"] [class*="st-key-hist_export_"] .stButton > button:hover {
+        color: #7ec8ff !important;
+        background: rgba(80,160,255,0.12) !important;
     }
 
     [data-testid="stSidebar"] [data-testid="stSidebarContent"],
@@ -511,6 +519,47 @@ STREAMLIT_STYLE: Final[str] = """
         margin: 0.35rem 0;
     }
 
+    /* Dialogs (delete confirm, download, …): readable primary/secondary */
+    [data-testid="stDialog"] .stButton > button,
+    [data-testid="stModal"] .stButton > button {
+        font-family: var(--oa-font) !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        min-height: 2.2rem !important;
+        border-radius: 8px !important;
+        justify-content: center !important;
+    }
+    [data-testid="stDialog"] button[kind="primary"],
+    [data-testid="stModal"] button[kind="primary"],
+    [data-testid="stDialog"] [class*="st-key-hist_delete_confirm_yes"] button,
+    [data-testid="stModal"] [class*="st-key-hist_delete_confirm_yes"] button {
+        background: #e8e8e8 !important;
+        color: #111111 !important;
+        border: 1px solid #e8e8e8 !important;
+    }
+    [data-testid="stDialog"] button[kind="primary"] p,
+    [data-testid="stDialog"] button[kind="primary"] span,
+    [data-testid="stModal"] button[kind="primary"] p,
+    [data-testid="stModal"] button[kind="primary"] span,
+    [data-testid="stDialog"] [class*="st-key-hist_delete_confirm_yes"] button p,
+    [data-testid="stDialog"] [class*="st-key-hist_delete_confirm_yes"] button span {
+        color: #111111 !important;
+    }
+    [data-testid="stDialog"] button[kind="secondary"],
+    [data-testid="stModal"] button[kind="secondary"],
+    [data-testid="stDialog"] [class*="st-key-hist_delete_confirm_no"] button,
+    [data-testid="stModal"] [class*="st-key-hist_delete_confirm_no"] button {
+        background: #1a1a1a !important;
+        color: #ededed !important;
+        border: 1px solid #333 !important;
+    }
+    [data-testid="stDialog"] button[kind="secondary"] p,
+    [data-testid="stDialog"] button[kind="secondary"] span,
+    [data-testid="stModal"] button[kind="secondary"] p,
+    [data-testid="stModal"] button[kind="secondary"] span {
+        color: #ededed !important;
+    }
+
     .oa-attach-hint {
         direction: rtl;
         color: #7a7a7a;
@@ -644,6 +693,8 @@ REFRESH_MODELS: Final[str] = "بروزرسانی مدل‌ها"
 HISTORY_HEADER: Final[str] = "گفتگوها"
 HISTORY_SELECT_LABEL: Final[str] = "گفتگوی قبلی"
 HISTORY_DELETE_ICON: Final[str] = "🗑"
+HISTORY_EXPORT_ICON: Final[str] = "💾"
+HISTORY_EXPORT_HELP: Final[str] = "خروجی JSON گفتگو"
 COMPOSER_SEND: Final[str] = "↑"
 COMPOSER_MIC: Final[str] = "🎤"
 ATTACH_PREVIEW_LABEL: Final[str] = "پیوست‌شده"
@@ -668,9 +719,19 @@ CHAT_FILE_TYPES: Final[tuple[str, ...]] = (
 )
 HISTORY_DELETE: Final[str] = "حذف گفتگوی انتخاب‌شده"
 HISTORY_DELETE_ALL: Final[str] = "حذف همه تاریخچه"
+HISTORY_DELETE_CONFIRM_TITLE: Final[str] = "تأیید حذف"
+HISTORY_DELETE_CONFIRM_ONE: Final[str] = (
+    "آیا مطمئن هستید که این گفتگو حذف شود؟"
+)
+HISTORY_DELETE_CONFIRM_ALL: Final[str] = (
+    "آیا مطمئن هستید که همهٔ گفتگوها حذف شوند؟ این کار برگشت‌پذیر نیست."
+)
+HISTORY_DELETE_CONFIRM_YES: Final[str] = "بله، حذف شود"
+HISTORY_DELETE_CONFIRM_NO: Final[str] = "انصراف"
 HISTORY_EMPTY: Final[str] = "هنوز گفتگوی ذخیره‌شده‌ای وجود ندارد."
 HISTORY_LOADED: Final[str] = "گفتگو بارگذاری شد."
 HISTORY_DELETED: Final[str] = "گفتگو حذف شد."
+HISTORY_DELETED_ALL: Final[str] = "همه تاریخچه حذف شد."
 HISTORY_NEW: Final[str] = "گفتگوی جدید شروع شد."
 HISTORY_NONE_OPTION: Final[str] = "— انتخاب کنید —"
 HISTORY_SAVED: Final[str] = "گفتگو در تاریخچه ذخیره شد."
